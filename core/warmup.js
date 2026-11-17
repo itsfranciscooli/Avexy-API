@@ -105,6 +105,26 @@ export function createJob(name, collect, warm, cfg, log) {
   };
 }
 
+// One hourly timer. The hourly job runs every tick; the six-hourly job runs on the first tick and
+// every 6th one after, always once the hourly run has finished so it can skip what that run covered.
+export function createSchedule(runHourly, runSixHourly, timers = globalThis) {
+  let ticks = 0;
+  let handle = null;
+  const tick = async () => {
+    const n = ticks++;
+    await runHourly().catch(() => {});
+    if (n % 6 === 0) await runSixHourly().catch(() => {});
+  };
+  return {
+    start() {
+      handle = timers.setInterval(tick, HOUR);
+      handle?.unref?.();
+      return tick();
+    },
+    stop() { timers.clearInterval(handle); },
+  };
+}
+
 export function startWarmup(env = process.env) {
   const cfg = readConfig(env);
   if (!cfg.enabled || !envBool(env, "CACHE_ENABLED", false)) return null;
@@ -128,11 +148,9 @@ export function startWarmup(env = process.env) {
   const runHourly = () => hourly.run().then((ids) => { if (ids) hourlySet = new Set(ids); });
   const runSixHourly = () => sixHourly.run();
 
-  // Hourly first so the six-hourly run can skip what it just covered.
-  runHourly().finally(runSixHourly);
-  const timers = [setInterval(runHourly, HOUR), setInterval(runSixHourly, 6 * HOUR)];
-  timers.forEach((t) => t.unref?.());
+  const schedule = createSchedule(runHourly, runSixHourly);
+  schedule.start();
   log(`[warmup] started (limit ${cfg.limit}, concurrency ${cfg.concurrency}, community ${cfg.communityUrl ? "on" : "off"})`);
 
-  return { stop: () => timers.forEach(clearInterval) };
+  return { stop: schedule.stop };
 }

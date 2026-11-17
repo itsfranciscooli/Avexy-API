@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   readConfig, currentSeason, mergeIds, runWithConcurrency,
-  collectHourlyIds, collectSixHourlyIds, createJob,
+  collectHourlyIds, collectSixHourlyIds, createJob, createSchedule,
 } from "../core/warmup.js";
 
 const H = 3_600_000;
@@ -110,4 +110,17 @@ test("runWithConcurrency spaces out the start of each item", async () => {
 
 test("readConfig spaces shows 1s apart by default", () => {
   assert.equal(readConfig({}).spacingMs, 1000);
+});
+
+test("schedule runs six-hourly after hourly, on start and every 6th hourly tick", async () => {
+  const order = [];
+  let tick;
+  const schedule = createSchedule(
+    async () => { order.push("h"); },
+    async () => { order.push("6"); },
+    { setInterval: (fn, ms) => { assert.equal(ms, 3_600_000); tick = fn; return 1; }, clearInterval: () => {} },
+  );
+  await schedule.start();
+  for (let i = 0; i < 6; i++) await tick();
+  assert.deepEqual(order, ["h", "6", "h", "h", "h", "h", "h", "h", "6"]);
 });
