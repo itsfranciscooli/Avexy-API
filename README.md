@@ -213,6 +213,17 @@ docker compose up --build
 The API comes up on `http://localhost:4000` with `CACHE_ENABLED=true` and
 `REDIS_URL=redis://redis:6379`. Everything is local — no accounts, no external services.
 
+### Cache warming
+
+When caching is on, the server fills the cache in the background so popular shows are fast even on their first visit. Two jobs run at startup and then on a timer:
+
+| Job | Runs every | Shows |
+|---|---|---|
+| hourly | 1 hour | MyAnimeZone community trending, plus every show with an episode airing today |
+| six-hourly | 6 hours | AniList trending, AniList most popular of all time, every show in the current season, and every show airing this week |
+
+Shows that are already cached and haven't changed (for example, finished series) are checked but not re-scraped.
+
 ### Environment variables
 
 Copy `.env.example` to `.env` and fill in the values.
@@ -222,6 +233,10 @@ Copy `.env.example` to `.env` and fill in the values.
 | `CACHE_ENABLED` | `true` | Set to `false` to disable caching. When on, the cache uses in-memory + on-disk tiers, plus a local Redis if one is reachable at `REDIS_URL`. No external service is required. |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | A **local** Redis server (e.g. the one in `docker-compose.yml`). Entirely optional — if Redis isn't running, the cache falls back to memory + disk automatically. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
+| `WARMUP_ENABLED` | `true` | Pre-cache popular anime in the background (see *Cache warming*). Only runs when `CACHE_ENABLED=true` and the app is started with `server.js`. |
+| `WARMUP_LIMIT` | `50` | How many AniList trending and all-time-popular shows to pre-cache (each list). |
+| `WARMUP_CONCURRENCY` | `3` | How many shows are scraped at the same time while warming. |
+| `WARMUP_COMMUNITY_URL` | `https://myanimezone.xyz/api/community/trending` | Community trending feed checked every hour. Set to an empty value to disable. |
 | `PORT` | `4000` | Local dev server port (`server.js` only — ignored on Vercel/serverless). Change it if `4000` is already in use, then hit `http://localhost:PORT`. |
 
 On Vercel (or Railway/Render), set these as regular project environment variables instead of committing `.env`.
