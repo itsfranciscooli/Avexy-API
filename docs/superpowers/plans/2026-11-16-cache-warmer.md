@@ -14,8 +14,8 @@
 
 | Job | Every | IDs |
 |---|---|---|
-| **hourly** | 1 h | MyAnimeZone community trending (`mostSaved` + `mostSeen`) **+** shows airing today (AniList airing schedule, `airingAt ∈ [now − 6 h, now + 24 h]`) |
-| **six-hourly** | 6 h | AniList trending (top `WARMUP_LIMIT`) **+** all-time popular (top `WARMUP_LIMIT`) **+** current season (all) **+** airing this week (all) — minus IDs the hourly job just covered |
+| **hourly** | 1 h | MyAnimeZone community trending (`mostSaved` + `mostSeen`) **+** AniList trending (top `WARMUP_LIMIT`) **+** shows airing today (AniList airing schedule, `airingAt ∈ [now − 6 h, now + 24 h]`) |
+| **six-hourly** | 6 h | AniList all-time popular (top `WARMUP_LIMIT`) **+** current season (all) **+** airing this week (all) — minus IDs the hourly job just covered |
 
 Both jobs run once immediately at startup. If a job is still running when its timer fires, that run is skipped (no overlap). A failed list fetch contributes no IDs that run; a failed show is logged and skipped. Nothing is persisted: cached entries keep their own TTLs.
 

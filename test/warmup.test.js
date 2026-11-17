@@ -44,39 +44,41 @@ test("runWithConcurrency caps in-flight work and continues after errors", async 
   assert.deepEqual(stats, { ok: 5, failed: 1 });
 });
 
-test("collectHourlyIds = community + shows airing in [now-6h, now+24h]", async () => {
+test("collectHourlyIds = community + AniList trending + shows airing in [now-6h, now+24h]", async () => {
   const now = 1000 * H;
-  let window;
+  let window, topCall;
   const src = {
     community: async () => [50, 1],
+    top: async (sort, limit) => { topCall = [sort, limit]; return [3, 1]; },
     airing: async (from, to) => { window = [from, to]; return [{ mediaId: 1, airingAt: sec(now + H) }, { mediaId: 2, airingAt: sec(now - 5 * H) }]; },
   };
-  assert.deepEqual(await collectHourlyIds(readConfig({}), now, src), [50, 1, 2]);
+  assert.deepEqual(await collectHourlyIds(readConfig({}), now, src), [50, 1, 3, 2]);
+  assert.deepEqual(topCall, ["TRENDING_DESC", 50]);
   assert.deepEqual(window, [sec(now - 6 * H), sec(now + 24 * H)]);
 });
 
 test("collectHourlyIds skips community when the url is empty", async () => {
   let called = false;
-  const src = { community: async () => { called = true; return [9]; }, airing: async () => [] };
+  const src = { community: async () => { called = true; return [9]; }, top: async () => [], airing: async () => [] };
   assert.deepEqual(await collectHourlyIds(readConfig({ WARMUP_COMMUNITY_URL: "" }), 0, src), []);
   assert.equal(called, false);
 });
 
-test("collectSixHourlyIds = trending + popular + season + week, minus excluded", async () => {
+test("collectSixHourlyIds = popular + season + week, minus excluded", async () => {
   const now = Date.parse("2026-11-16T00:00:00Z");
   const calls = [];
   const src = {
-    top: async (sort, limit) => { calls.push([sort, limit]); return sort === "TRENDING_DESC" ? [1, 2] : [2, 3]; },
+    top: async (sort, limit) => { calls.push([sort, limit]); return [2, 3]; },
     season: async (season, year) => { calls.push([season, year]); return [4]; },
     airing: async (from, to) => { calls.push([to - from]); return [{ mediaId: 5, airingAt: 0 }]; },
   };
-  assert.deepEqual(await collectSixHourlyIds(readConfig({}), now, src, new Set([3])), [1, 2, 4, 5]);
-  assert.deepEqual(calls, [["TRENDING_DESC", 50], ["POPULARITY_DESC", 50], ["FALL", 2026], [7 * 86400]]);
+  assert.deepEqual(await collectSixHourlyIds(readConfig({}), now, src, new Set([3])), [2, 4, 5]);
+  assert.deepEqual(calls, [["POPULARITY_DESC", 50], ["FALL", 2026], [7 * 86400]]);
 });
 
 test("collect functions tolerate a failing source", async () => {
   const boom = async () => { throw new Error("down"); };
-  assert.deepEqual(await collectHourlyIds(readConfig({}), 0, { community: boom, airing: async () => [{ mediaId: 7, airingAt: 0 }] }), [7]);
+  assert.deepEqual(await collectHourlyIds(readConfig({}), 0, { community: boom, top: boom, airing: async () => [{ mediaId: 7, airingAt: 0 }] }), [7]);
   assert.deepEqual(await collectSixHourlyIds(readConfig({}), 0, { top: boom, season: async () => [8], airing: boom }, new Set()), [8]);
 });
 

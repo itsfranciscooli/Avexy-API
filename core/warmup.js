@@ -1,6 +1,6 @@
 // Cache warmer: proactively builds the /episodes/:id cache for popular anime.
-//   hourly     — MyAnimeZone community trending + shows airing today
-//   six-hourly — AniList trending, all-time popular, current season, airing this week
+//   hourly     — MyAnimeZone community trending, AniList trending, shows airing today
+//   six-hourly — AniList all-time popular, current season, airing this week
 // Started from server.js only (Node). Each job warms its whole set every run; the episode
 // cache itself decides whether a cached show actually needs re-scraping.
 import { fetchTopAnimeIds, fetchSeasonAnimeIds, fetchAiringSchedule } from "./anilist.js";
@@ -67,22 +67,22 @@ const scheduleIds = (schedule) => schedule.map((s) => s.mediaId);
 
 export async function collectHourlyIds(cfg, nowMs, src) {
   const nowSec = Math.floor(nowMs / 1000);
-  const [community, airing] = await Promise.all([
+  const [community, trending, airing] = await Promise.all([
     cfg.communityUrl ? safe(src.community(cfg.communityUrl)) : [],
+    safe(src.top("TRENDING_DESC", cfg.limit)),
     safe(src.airing(nowSec - 6 * 3600, nowSec + DAY_SEC)),
   ]);
-  return mergeIds([community, scheduleIds(airing)]);
+  return mergeIds([community, trending, scheduleIds(airing)]);
 }
 
 export async function collectSixHourlyIds(cfg, nowMs, src, excludeIds) {
   const nowSec = Math.floor(nowMs / 1000);
   const { season, year } = currentSeason(new Date(nowMs));
   // Sequential on purpose: keeps AniList request bursts small (rate limit ~90/min).
-  const trending = await safe(src.top("TRENDING_DESC", cfg.limit));
   const popular = await safe(src.top("POPULARITY_DESC", cfg.limit));
   const seasonal = await safe(src.season(season, year));
   const week = await safe(src.airing(nowSec, nowSec + 7 * DAY_SEC));
-  return mergeIds([trending, popular, seasonal, scheduleIds(week)]).filter((id) => !excludeIds.has(id));
+  return mergeIds([popular, seasonal, scheduleIds(week)]).filter((id) => !excludeIds.has(id));
 }
 
 // run() resolves to the collected ids, or null when skipped because the previous run is still going.
