@@ -5,6 +5,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import worker from "./index.js";
 import { startWarmup } from "./core/warmup.js";
+import { clearAll, _CACHE_ENABLED } from "./core/smartcache.js";
+
+// Every restart starts from an empty cache (memory, disk and Redis), so a
+// deploy never serves results built by older code. CLEAR_CACHE_ON_START=false
+// keeps the cache across restarts instead.
+if (_CACHE_ENABLED && !/^(false|0|no|off)$/i.test(process.env.CLEAR_CACHE_ON_START ?? "")) {
+  const cleared = await clearAll();
+  console.log(`[cache] cleared on start: memory, ${cleared.files} disk entries, redis ${cleared.redis}`);
+}
 
 const PORT  = Number(process.env.PORT) || 4000;
 const BASE  = process.env.BASE_PATH ?? "";

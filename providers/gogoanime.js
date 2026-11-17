@@ -56,6 +56,11 @@ export function parseSeriesEpisodes(html) {
     const number = Number(m[1]);
     if (!episodes.has(number)) episodes.set(number, { number, url: decodeEntities(m[2]) });
   }
+  // Some series pages list episodes in a #gapi-list grid of /watch/<slug>/ep-N links instead.
+  for (const m of html.matchAll(/<a\b[^>]*\bhref=["']([^"']*\/watch\/[^"']+\/ep-(\d+)\/?)["'][^>]*>/gi)) {
+    const number = Number(m[2]);
+    if (!episodes.has(number)) episodes.set(number, { number, url: decodeEntities(m[1]) });
+  }
   return [...episodes.values()].sort((a, b) => a.number - b.number);
 }
 

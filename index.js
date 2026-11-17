@@ -16,7 +16,9 @@ import gogoanimeHandler            from "./providers/gogoanime.js";
 import animesaturnHandler          from "./providers/animesaturn.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
-import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED } from "./core/smartcache.js";
+import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED, cacheStatus } from "./core/smartcache.js";
+
+const STARTED_AT = Date.now();
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -33,6 +35,32 @@ function rewriteRequest(request, newPath) {
   const u = new URL(request.url);
   u.pathname = newPath;
   return new Request(u.toString(), { method: request.method, headers: request.headers });
+}
+
+function processMemoryMb() {
+  try {
+    const { rss, heapUsed } = process.memoryUsage();
+    return { rss: Math.round(rss / 1048576), heapUsed: Math.round(heapUsed / 1048576) };
+  } catch { return null; }
+}
+
+// "degraded" means Redis is down: the cache keeps working on memory + disk,
+// so the API still answers normally.
+async function statusResponse(env) {
+  const cache = await cacheStatus();
+  const res = json({
+    status: cache.redis.status === "disconnected" ? "degraded" : "ok",
+    api: {
+      status:        "ok",
+      version:       env?.API_VERSION ?? "unknown",
+      startedAt:     new Date(STARTED_AT).toISOString(),
+      uptimeSeconds: Math.floor((Date.now() - STARTED_AT) / 1000),
+      memoryMb:      processMemoryMb(),
+    },
+    cache,
+  });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
 }
 
 const watchInflight = new Map();
@@ -80,6 +108,8 @@ export default {
         },
       });
     }
+
+    if (path === "/status" || path === "/status/") return statusResponse(env);
 
     let m = path.match(/^\/map\/(\d+)\/?$/);
     if (m) {
@@ -294,6 +324,7 @@ export default {
         "animesaturn",
       ],
       routes: [
+        "/status",
         "/map/:anilistId",
         "/episodes/:anilistId",
         "/episodes/:provider[/:provider...]/:anilistId?map=true|false",

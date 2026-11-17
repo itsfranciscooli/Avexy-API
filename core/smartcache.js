@@ -85,19 +85,57 @@ async function redisWrite(key, entry) {
   await redisCommand(["SET", key, value, "PX", Math.ceil(ttlMs)]);
 }
 
+// Resolves true once Redis is connected, false if it errors or doesn't come up
+// within timeoutMs (no Redis configured, or unreachable).
+function waitForRedis(timeoutMs) {
+  if (!redisClient) return Promise.resolve(false);
+  if (redisReady) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const finish = (ok) => {
+      clearTimeout(timer);
+      redisClient.off("ready", onReady);
+      redisClient.off("error", onError);
+      resolve(ok);
+    };
+    const onReady = () => finish(true);
+    const onError = () => finish(false);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    redisClient.once("ready", onReady);
+    redisClient.once("error", onError);
+  });
+}
+
 let diskRead  = () => null;
 let diskWrite = () => {};
 let diskDel   = () => {};
+let diskClear = () => 0;
+let diskCount = () => null;
 
 if (IS_LOCAL_NODE) {
-  const { readFileSync, mkdirSync, existsSync } = await import("node:fs");
+  const { readFileSync, mkdirSync, existsSync, readdirSync, rmSync } = await import("node:fs");
   const { writeFile, unlink }                   = await import("node:fs/promises");
   const { join, dirname }                        = await import("node:path");
   const { fileURLToPath }                        = await import("node:url");
 
   const __dir    = dirname(fileURLToPath(import.meta.url));
-  const CACHE_DIR = join(__dir, ".cache");
+  const CACHE_DIR = readEnv("CACHE_DIR") || join(__dir, ".cache");
   try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+
+  diskClear = () => {
+    let removed = 0;
+    try {
+      for (const name of readdirSync(CACHE_DIR)) {
+        if (!name.endsWith(".json")) continue;
+        try { rmSync(join(CACHE_DIR, name), { force: true }); removed++; } catch {}
+      }
+    } catch {}
+    return removed;
+  };
+
+  diskCount = () => {
+    try { return readdirSync(CACHE_DIR).filter((name) => name.endsWith(".json")).length; }
+    catch { return null; }
+  };
 
   const keyToPath = (key) =>
     join(CACHE_DIR, key.replace(/[^a-zA-Z0-9_-]/g, "_") + ".json");
@@ -248,6 +286,54 @@ export async function delByPrefixAsync(prefix) {
   if (Array.isArray(keys) && keys.length) {
     await redisCommand(["DEL", ...keys]);
   }
+}
+
+// Wipes every tier: memory, the on-disk .cache files and the Redis database at
+// REDIS_URL (FLUSHDB). server.js calls this on startup so each restart begins
+// with an empty cache. FLUSHDB clears the whole Redis database, so REDIS_URL
+// should point at a Redis (or db index) used only by this API.
+export async function clearAll({ redisWaitMs = 5000 } = {}) {
+  mem.clear();
+  const files = diskClear();
+  let redis = "not configured";
+  if (redisClient) {
+    redis = await waitForRedis(redisWaitMs)
+      ? ((await redisCommand(["FLUSHDB"])) === "OK" ? "flushed" : "flush failed")
+      : "unreachable";
+  }
+  return { memory: true, files, redis };
+}
+
+// Snapshot of every tier for GET /status. Redis is pinged live; REDIS_URL itself
+// is never reported since it can carry a password.
+// redis.status: "connected" | "disconnected" | "disabled" (CACHE_ENABLED=false)
+//               | "unavailable" (edge runtime or ioredis missing)
+export async function cacheStatus() {
+  const redis = { status: "disabled" };
+  if (_CACHE_ENABLED) {
+    if (!redisClient) {
+      redis.status = "unavailable";
+    } else if (!redisReady) {
+      redis.status = "disconnected";
+    } else {
+      const started = Date.now();
+      const pong = await redisCommand(["PING"]);
+      if (pong === "PONG") {
+        redis.status = "connected";
+        redis.latencyMs = Date.now() - started;
+        redis.keys = await redisCommand(["DBSIZE"]);
+      } else {
+        redis.status = "disconnected";
+      }
+    }
+  }
+
+  return {
+    enabled: _CACHE_ENABLED,
+    memory:  { entries: mem.size, max: MAX_MEM },
+    disk:    { enabled: IS_LOCAL_NODE, entries: diskCount() },
+    redis,
+  };
 }
 
 const MIN  = 60_000;

@@ -51,6 +51,18 @@ test("gogoanime: series page episodes are parsed, deduped and sorted", () => {
   ]);
 });
 
+test("gogoanime: series pages with the gapi episode grid are parsed", () => {
+  const html = `<div id="gapi-list"><p class="hd">Episodes — 25 total.</p><div class="eg">
+      <a class="e" href="https://gogoanime.by/watch/shingeki-no-kyojin/ep-2" title="That Day">2</a>
+      <a class="e" href="https://gogoanime.by/watch/shingeki-no-kyojin/ep-1" title="To You">1</a>
+    </div></div>
+    <a href="https://gogoanime.by/shingeki-no-kyojin-episode-7-english-subbed/">Episode 7</a>`;
+  assert.deepEqual(parseSeriesEpisodes(html), [
+    { number: 1, url: "https://gogoanime.by/watch/shingeki-no-kyojin/ep-1" },
+    { number: 2, url: "https://gogoanime.by/watch/shingeki-no-kyojin/ep-2" },
+  ]);
+});
+
 test("gogoanime: episode page servers keep their audio group", () => {
   const html = `<div class="type" data-type="sub">
       <label>SUB:</label>

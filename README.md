@@ -53,6 +53,11 @@ All listed providers are active. Coverage and stream availability vary by title.
 ## Routes
 
 ```
+GET /status
+```
+Returns the health of the API (version, uptime, memory) and of each cache tier: memory and disk entry counts, plus the Redis connection state, latency and key count. The top-level `status` is `ok`, or `degraded` when caching is on but Redis is unreachable. In that case the cache keeps working from memory and disk. The response is never cached.
+
+```
 GET /map/:anilistId
 ```
 Returns cross-platform ID mappings — MAL, TVDB, TMDB, Kitsu, AniDB, and more.
@@ -245,6 +250,8 @@ Copy `.env.example` to `.env` and fill in the values.
 | `CACHE_ENABLED` | `true` | Set to `false` to disable caching. When on, the cache uses in-memory + on-disk tiers, plus a local Redis if one is reachable at `REDIS_URL`. No external service is required. |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | A **local** Redis server (e.g. the one in `docker-compose.yml`). Entirely optional — if Redis isn't running, the cache falls back to memory + disk automatically. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
+| `CLEAR_CACHE_ON_START` | `true` | Wipe the whole cache (memory, the `core/.cache` files and the Redis database at `REDIS_URL` via `FLUSHDB`) every time `server.js` starts, so a restart or deploy never serves results built by older code. Set to `false` to keep the cache across restarts. Because it flushes the whole Redis database, point `REDIS_URL` at a Redis (or db index) used only by this API. |
+| `CACHE_DIR` | `core/.cache` | Folder for the on-disk cache tier. |
 | `WARMUP_ENABLED` | `true` | Pre-cache popular anime in the background (see *Cache warming*). Only runs when `CACHE_ENABLED=true` and the app is started with `server.js`. |
 | `WARMUP_LIMIT` | `50` | How many AniList trending and all-time-popular shows to pre-cache, per list. AniList returns at most 50. |
 | `WARMUP_CONCURRENCY` | `3` | How many shows are scraped at the same time while warming. |
