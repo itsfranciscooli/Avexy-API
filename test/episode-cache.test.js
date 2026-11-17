@@ -24,3 +24,20 @@ test("shouldRebuild still rebuilds a releasing show that gained an episode", () 
   assert.equal(episodeCache.shouldRebuild(cachedEntry(5), media, { episodes: { 6: {} } }), true);
   assert.equal(episodeCache.shouldRebuild(cachedEntry(12), { ...media, status: "FINISHED" }, null), false);
 });
+
+const MIN = 60_000;
+const NOW = 1_800_000_000_000;
+
+test("isProbeDue follows the API probe rule: every 15 min normally", () => {
+  assert.equal(episodeCache.isProbeDue(undefined, NOW), true);
+  assert.equal(episodeCache.isProbeDue({ lastProbeAt: NOW - 14 * MIN }, NOW), false);
+  assert.equal(episodeCache.isProbeDue({ lastProbeAt: NOW - 15 * MIN }, NOW), true);
+});
+
+test("isProbeDue drops to 5 min from 10 min before an episode airs until 6 h after", () => {
+  const state = (airInMin) => ({ lastProbeAt: NOW - 6 * MIN, nextAiringAt: (NOW + airInMin * MIN) / 1000 });
+  assert.equal(episodeCache.isProbeDue(state(9), NOW), true);
+  assert.equal(episodeCache.isProbeDue(state(11), NOW), false);
+  assert.equal(episodeCache.isProbeDue(state(-359), NOW), true);
+  assert.equal(episodeCache.isProbeDue(state(-361), NOW), false);
+});

@@ -1,5 +1,11 @@
 # Cache Warmer Implementation Plan (simplified)
 
+> **Superseded (2026-11-17):** the hourly / six-hourly jobs were replaced. The warmer now uses the
+> API's own per-show rule (`isProbeDue` in `core/episode-cache.js`: re-check 15 min after the last
+> probe, every 5 min from 10 min before airing until 6 h after; re-scrape only when `shouldRebuild`).
+> The tracked lists are cached for 30 days and re-fetched every 15 min; a one-minute tick warms the
+> shows that are due. See `core/warmup.js` and the README "Cache warming" section.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Proactively cache the `/episodes/:id` response for popular anime on two fixed cadences: an **hourly** job for "essential" data and a **6-hourly** job for everything else.

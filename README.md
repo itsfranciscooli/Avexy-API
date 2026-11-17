@@ -215,14 +215,22 @@ The API comes up on `http://localhost:4000` with `CACHE_ENABLED=true` and
 
 ### Cache warming
 
-When caching is on, the server fills the cache in the background so popular shows are fast even on their first visit. Two jobs run at startup and then on a timer:
+When caching is on, the server fills the cache in the background so popular shows are fast even on their first visit. It tracks these shows:
 
-| Job | Runs every | Shows |
-|---|---|---|
-| hourly | 1 hour | MyAnimeZone community trending, AniList trending now, plus every show with an episode airing today |
-| six-hourly | 6 hours | AniList most popular of all time, every show in the current season, and every show airing this week |
+- MyAnimeZone community trending
+- AniList trending now
+- every show airing today and this week
+- every show in the current season
+- AniList most popular of all time
 
-Shows that are already cached and haven't changed (for example, finished series) are checked but not re-scraped.
+Warmed shows follow exactly the same rules as `/episodes/:id`:
+
+- Each episode list is stored for 30 days.
+- A show is re-checked against AniList and ani.zip 15 minutes after its last check, whether that check came from a visitor or the warmer.
+- From 10 minutes before an episode airs until 6 hours after, that check runs every 5 minutes instead.
+- A show is re-scraped only when something changed or it is still airing. Finished, unchanged shows are left alone.
+
+The tracked lists use the same pattern: each is cached for 30 days and re-fetched every 15 minutes. If a source is down, the last good list is kept. The warmer looks for due shows once a minute.
 
 ### Environment variables
 
@@ -234,9 +242,9 @@ Copy `.env.example` to `.env` and fill in the values.
 | `REDIS_URL` | `redis://127.0.0.1:6379` | A **local** Redis server (e.g. the one in `docker-compose.yml`). Entirely optional — if Redis isn't running, the cache falls back to memory + disk automatically. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
 | `WARMUP_ENABLED` | `true` | Pre-cache popular anime in the background (see *Cache warming*). Only runs when `CACHE_ENABLED=true` and the app is started with `server.js`. |
-| `WARMUP_LIMIT` | `50` | How many AniList trending (hourly) and all-time-popular (six-hourly) shows to pre-cache, per list. AniList returns at most 50. |
+| `WARMUP_LIMIT` | `50` | How many AniList trending and all-time-popular shows to pre-cache, per list. AniList returns at most 50. |
 | `WARMUP_CONCURRENCY` | `3` | How many shows are scraped at the same time while warming. |
-| `WARMUP_COMMUNITY_URL` | `https://myanimezone.xyz/api/community/trending` | Community trending feed checked every hour. Set to an empty value to disable. |
+| `WARMUP_COMMUNITY_URL` | `https://myanimezone.xyz/api/community/trending` | Community trending feed, re-fetched every 15 minutes. Set to an empty value to disable. |
 | `PORT` | `4000` | Local dev server port (`server.js` only — ignored on Vercel/serverless). Change it if `4000` is already in use, then hit `http://localhost:PORT`. |
 
 On Vercel (or Railway/Render), set these as regular project environment variables instead of committing `.env`.

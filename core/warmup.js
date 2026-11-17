@@ -1,14 +1,25 @@
-// Cache warmer: proactively builds the /episodes/:id cache for popular anime.
-//   hourly     — MyAnimeZone community trending, AniList trending, shows airing today
-//   six-hourly — AniList all-time popular, current season, airing this week
-// Started from server.js only (Node). Each job warms its whole set every run; the episode
-// cache itself decides whether a cached show actually needs re-scraping.
+// Cache warmer: keeps the /episodes/:id cache filled for popular anime, using exactly the same
+// rules as the API itself (see core/episode-cache.js):
+//   - each episode list is stored for 30 days;
+//   - a show is re-checked against AniList/ani.zip 15 min after its last check, or every 5 min
+//     from 10 min before an episode airs until 6 h after;
+//   - it is re-scraped only when something changed or it is still airing.
+// The show lists it tracks follow the same pattern: each is cached for 30 days and re-fetched
+// every 15 min (MyAnimeZone community trending, AniList trending, shows airing today and this
+// week, the current season, AniList all-time popular).
+// Started from server.js only (Node).
 import { fetchTopAnimeIds, fetchSeasonAnimeIds, fetchAiringSchedule } from "./anilist.js";
 import { fetchCommunityTrendingIds } from "./community-trending.js";
-import { warmEpisodes } from "./episode-cache.js";
+import { warmEpisodes, isRefreshDue } from "./episode-cache.js";
+import { get, set, needsRefresh } from "./smartcache.js";
 
-const HOUR = 3_600_000;
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
 const DAY_SEC = 86_400;
+const LIST_TTL = 30 * DAY;
+const LIST_REFRESH = 15 * MIN;
+const TICK = MIN;
 const DEFAULT_COMMUNITY_URL = "https://myanimezone.xyz/api/community/trending";
 
 function envBool(env, name, fallback) {
@@ -62,42 +73,73 @@ export async function runWithConcurrency(items, n, fn, spacingMs = 0) {
   return stats;
 }
 
-const safe = (promise) => Promise.resolve().then(() => promise).catch(() => []);
-const scheduleIds = (schedule) => schedule.map((s) => s.mediaId);
-
-export async function collectHourlyIds(cfg, nowMs, src) {
-  const nowSec = Math.floor(nowMs / 1000);
-  const [community, trending, airing] = await Promise.all([
-    cfg.communityUrl ? safe(src.community(cfg.communityUrl)) : [],
-    safe(src.top("TRENDING_DESC", cfg.limit)),
-    safe(src.airing(nowSec - 6 * 3600, nowSec + DAY_SEC)),
-  ]);
-  return mergeIds([community, trending, scheduleIds(airing)]);
+// The tracked show lists, in priority order (earlier lists are warmed first on each tick).
+// "airing" covers [now - 6 h, now + 7 d]: shows airing today plus the rest of the week.
+export function listFetchers(cfg, src) {
+  const fetchers = {};
+  if (cfg.communityUrl) fetchers.community = () => src.community(cfg.communityUrl);
+  fetchers.trending = () => src.top("TRENDING_DESC", cfg.limit);
+  fetchers.airing = async (nowMs) => {
+    const nowSec = Math.floor(nowMs / 1000);
+    const schedule = await src.airing(nowSec - 6 * 3600, nowSec + 7 * DAY_SEC);
+    return schedule.map((s) => s.mediaId);
+  };
+  fetchers.season = (nowMs) => {
+    const { season, year } = currentSeason(new Date(nowMs));
+    return src.season(season, year);
+  };
+  fetchers.popular = () => src.top("POPULARITY_DESC", cfg.limit);
+  return fetchers;
 }
 
-export async function collectSixHourlyIds(cfg, nowMs, src, excludeIds) {
-  const nowSec = Math.floor(nowMs / 1000);
-  const { season, year } = currentSeason(new Date(nowMs));
-  // Sequential on purpose: keeps AniList request bursts small (rate limit ~90/min).
-  const popular = await safe(src.top("POPULARITY_DESC", cfg.limit));
-  const seasonal = await safe(src.season(season, year));
-  const week = await safe(src.airing(nowSec, nowSec + 7 * DAY_SEC));
-  return mergeIds([popular, seasonal, scheduleIds(week)]).filter((id) => !excludeIds.has(id));
+// Last failed fetch per list, per cache, so a failing source is retried every 15 min, not every tick.
+const failures = new WeakMap();
+
+// Returns the merged tracked ids. Each list is cached for 30 days and re-fetched once it is older
+// than 15 minutes. A failed or empty fetch keeps the cached list. Fetched one at a time on purpose:
+// keeps AniList request bursts small (rate limit ~90/min).
+export async function refreshLists(fetchers, nowMs, cache) {
+  if (!failures.has(cache)) failures.set(cache, new Map());
+  const failedAt = failures.get(cache);
+  const lists = [];
+
+  for (const [name, fetchList] of Object.entries(fetchers)) {
+    const key = `warmup:list:${name}`;
+    let entry = cache.get(key);
+    const backingOff = entry && nowMs - (failedAt.get(name) ?? -Infinity) < LIST_REFRESH;
+
+    if (cache.needsRefresh(entry) && !backingOff) {
+      const ids = await Promise.resolve().then(() => fetchList(nowMs)).catch(() => []);
+      if (Array.isArray(ids) && ids.length) {
+        cache.set(key, ids, LIST_TTL, LIST_REFRESH);
+        failedAt.delete(name);
+        entry = cache.get(key);
+      } else {
+        failedAt.set(name, nowMs);
+      }
+    }
+    lists.push(entry?.data ?? []);
+  }
+  return mergeIds(lists);
 }
 
-// run() resolves to the collected ids, or null when skipped because the previous run is still going.
-export function createJob(name, collect, warm, cfg, log) {
+// tick(): collect the tracked ids, then warm the ones whose probe is due. A tick that starts while
+// the previous one is still running is skipped. Never throws.
+export function createWarmer({ cfg, collect, isDue, warm, log }) {
   let running = false;
   return {
-    async run() {
-      if (running) return null;
+    async tick() {
+      if (running) return;
       running = true;
       const started = Date.now();
       try {
-        const ids = await collect().catch((e) => { log(`[warmup:${name}] collect failed: ${e.message}`); return []; });
-        const { ok, failed } = await runWithConcurrency(ids, cfg.concurrency, warm, cfg.spacingMs);
-        log(`[warmup:${name}] ${ids.length} shows, ${ok} warmed, ${failed} failed in ${Math.round((Date.now() - started) / 1000)}s`);
-        return ids;
+        const ids = await collect();
+        const due = ids.filter((id) => isDue(id));
+        if (!due.length) return;
+        const { ok, failed } = await runWithConcurrency(due, cfg.concurrency, warm, cfg.spacingMs);
+        log(`[warmup] ${due.length} of ${ids.length} tracked shows due, ${ok} checked, ${failed} failed in ${Math.round((Date.now() - started) / 1000)}s`);
+      } catch (e) {
+        log(`[warmup] tick failed: ${e.message}`);
       } finally {
         running = false;
       }
@@ -105,21 +147,15 @@ export function createJob(name, collect, warm, cfg, log) {
   };
 }
 
-// One hourly timer. The hourly job runs every tick; the six-hourly job runs on the first tick and
-// every 6th one after, always once the hourly run has finished so it can skip what that run covered.
-export function createSchedule(runHourly, runSixHourly, timers = globalThis) {
-  let ticks = 0;
+// Runs fn now and then every minute. One minute is finer than the shortest probe interval (5 min),
+// so each show is re-checked within a minute of becoming due.
+export function createTicker(fn, timers = globalThis) {
   let handle = null;
-  const tick = async () => {
-    const n = ticks++;
-    await runHourly().catch(() => {});
-    if (n % 6 === 0) await runSixHourly().catch(() => {});
-  };
   return {
     start() {
-      handle = timers.setInterval(tick, HOUR);
+      handle = timers.setInterval(fn, TICK);
       handle?.unref?.();
-      return tick();
+      return fn();
     },
     stop() { timers.clearInterval(handle); },
   };
@@ -129,28 +165,29 @@ export function startWarmup(env = process.env) {
   const cfg = readConfig(env);
   if (!cfg.enabled || !envBool(env, "CACHE_ENABLED", false)) return null;
 
-  const src = {
+  const fetchers = listFetchers(cfg, {
     top: fetchTopAnimeIds,
     season: fetchSeasonAnimeIds,
     airing: fetchAiringSchedule,
     community: fetchCommunityTrendingIds,
-  };
+  });
+  const cache = { get, set, needsRefresh };
   const log = (msg) => console.log(msg);
-  const warm = (id) => warmEpisodes(id).catch((e) => {
-    console.error(`[warmup] ${id}: ${e.message}`);
-    throw e;
+
+  const warmer = createWarmer({
+    cfg,
+    collect: () => refreshLists(fetchers, Date.now(), cache),
+    isDue: (id) => isRefreshDue(id),
+    warm: (id) => warmEpisodes(id).catch((e) => {
+      console.error(`[warmup] ${id}: ${e.message}`);
+      throw e;
+    }),
+    log,
   });
 
-  let hourlySet = new Set();
-  const hourly = createJob("hourly", () => collectHourlyIds(cfg, Date.now(), src), warm, cfg, log);
-  const sixHourly = createJob("six-hourly", () => collectSixHourlyIds(cfg, Date.now(), src, hourlySet), warm, cfg, log);
+  const ticker = createTicker(() => warmer.tick());
+  ticker.start();
+  log(`[warmup] started (lists: ${Object.keys(fetchers).join(", ")}; limit ${cfg.limit}, concurrency ${cfg.concurrency})`);
 
-  const runHourly = () => hourly.run().then((ids) => { if (ids) hourlySet = new Set(ids); });
-  const runSixHourly = () => sixHourly.run();
-
-  const schedule = createSchedule(runHourly, runSixHourly);
-  schedule.start();
-  log(`[warmup] started (limit ${cfg.limit}, concurrency ${cfg.concurrency}, community ${cfg.communityUrl ? "on" : "off"})`);
-
-  return { stop: schedule.stop };
+  return { stop: ticker.stop };
 }

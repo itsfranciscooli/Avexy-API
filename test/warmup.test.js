@@ -2,12 +2,24 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   readConfig, currentSeason, mergeIds, runWithConcurrency,
-  collectHourlyIds, collectSixHourlyIds, createJob, createSchedule,
+  listFetchers, refreshLists, createWarmer, createTicker,
 } from "../core/warmup.js";
 
-const H = 3_600_000;
+const MIN = 60_000;
+const H = 60 * MIN;
+const DAY = 24 * H;
 const COMMUNITY = "https://myanimezone.xyz/api/community/trending";
 const sec = (ms) => Math.floor(ms / 1000);
+
+// In-memory stand-in for smartcache with the same get/set/needsRefresh contract.
+function fakeCache(clock) {
+  const store = new Map();
+  return {
+    get: (k) => store.get(k) ?? null,
+    set: (k, data, ttl, refreshAfter) => { store.set(k, { data, cachedAt: clock.now, ttl, refreshAfter }); },
+    needsRefresh: (e) => !e || clock.now - e.cachedAt > e.refreshAfter,
+  };
+}
 
 test("readConfig defaults", () => {
   assert.deepEqual(readConfig({}), { enabled: true, limit: 50, concurrency: 3, communityUrl: COMMUNITY, spacingMs: 1000 });
@@ -44,64 +56,6 @@ test("runWithConcurrency caps in-flight work and continues after errors", async 
   assert.deepEqual(stats, { ok: 5, failed: 1 });
 });
 
-test("collectHourlyIds = community + AniList trending + shows airing in [now-6h, now+24h]", async () => {
-  const now = 1000 * H;
-  let window, topCall;
-  const src = {
-    community: async () => [50, 1],
-    top: async (sort, limit) => { topCall = [sort, limit]; return [3, 1]; },
-    airing: async (from, to) => { window = [from, to]; return [{ mediaId: 1, airingAt: sec(now + H) }, { mediaId: 2, airingAt: sec(now - 5 * H) }]; },
-  };
-  assert.deepEqual(await collectHourlyIds(readConfig({}), now, src), [50, 1, 3, 2]);
-  assert.deepEqual(topCall, ["TRENDING_DESC", 50]);
-  assert.deepEqual(window, [sec(now - 6 * H), sec(now + 24 * H)]);
-});
-
-test("collectHourlyIds skips community when the url is empty", async () => {
-  let called = false;
-  const src = { community: async () => { called = true; return [9]; }, top: async () => [], airing: async () => [] };
-  assert.deepEqual(await collectHourlyIds(readConfig({ WARMUP_COMMUNITY_URL: "" }), 0, src), []);
-  assert.equal(called, false);
-});
-
-test("collectSixHourlyIds = popular + season + week, minus excluded", async () => {
-  const now = Date.parse("2026-11-16T00:00:00Z");
-  const calls = [];
-  const src = {
-    top: async (sort, limit) => { calls.push([sort, limit]); return [2, 3]; },
-    season: async (season, year) => { calls.push([season, year]); return [4]; },
-    airing: async (from, to) => { calls.push([to - from]); return [{ mediaId: 5, airingAt: 0 }]; },
-  };
-  assert.deepEqual(await collectSixHourlyIds(readConfig({}), now, src, new Set([3])), [2, 4, 5]);
-  assert.deepEqual(calls, [["POPULARITY_DESC", 50], ["FALL", 2026], [7 * 86400]]);
-});
-
-test("collect functions tolerate a failing source", async () => {
-  const boom = async () => { throw new Error("down"); };
-  assert.deepEqual(await collectHourlyIds(readConfig({}), 0, { community: boom, top: boom, airing: async () => [{ mediaId: 7, airingAt: 0 }] }), [7]);
-  assert.deepEqual(await collectSixHourlyIds(readConfig({}), 0, { top: boom, season: async () => [8], airing: boom }, new Set()), [8]);
-});
-
-test("job skips a run while the previous one is still going", async () => {
-  let release, collects = 0;
-  const gate = new Promise((r) => { release = r; });
-  const job = createJob("t", async () => { collects++; await gate; return [1]; }, async () => {}, { ...readConfig({}), spacingMs: 0 }, () => {});
-  const first = job.run();
-  assert.equal(await job.run(), null);
-  release();
-  assert.deepEqual(await first, [1]);
-  assert.equal(collects, 1);
-});
-
-test("job warms every collected id and never throws", async () => {
-  const warmed = [];
-  const job = createJob("t", async () => [1, 2], async (id) => { warmed.push(id); if (id === 1) throw new Error("x"); }, { ...readConfig({}), spacingMs: 0 }, () => {});
-  assert.deepEqual(await job.run(), [1, 2]);
-  assert.deepEqual(warmed.sort(), [1, 2]);
-  const broken = createJob("t", async () => { throw new Error("collect failed"); }, async () => {}, { ...readConfig({}), spacingMs: 0 }, () => {});
-  assert.deepEqual(await broken.run(), []);
-});
-
 test("runWithConcurrency spaces out the start of each item", async () => {
   const starts = [];
   await runWithConcurrency([1, 2, 3, 4], 3, async () => { starts.push(Date.now()); }, 40);
@@ -110,19 +64,119 @@ test("runWithConcurrency spaces out the start of each item", async () => {
   for (let i = 1; i < starts.length; i++) assert.ok(starts[i] - starts[0] >= i * 40 - 16, `start ${i} at +${starts[i] - starts[0]}ms`);
 });
 
-test("readConfig spaces shows 1s apart by default", () => {
-  assert.equal(readConfig({}).spacingMs, 1000);
+test("listFetchers: community, trending, airing (today + week), season, popular", async () => {
+  const now = Date.parse("2026-11-16T00:00:00Z");
+  const calls = [];
+  const src = {
+    community: async (url) => { calls.push(["community", url]); return [1]; },
+    top: async (sort, limit) => { calls.push([sort, limit]); return sort === "TRENDING_DESC" ? [2] : [5]; },
+    airing: async (from, to) => { calls.push(["airing", from, to]); return [{ mediaId: 3, airingAt: 0 }]; },
+    season: async (season, year) => { calls.push([season, year]); return [4]; },
+  };
+  const f = listFetchers(readConfig({}), src);
+  assert.deepEqual(Object.keys(f), ["community", "trending", "airing", "season", "popular"]);
+  assert.deepEqual(await f.community(now), [1]);
+  assert.deepEqual(await f.trending(now), [2]);
+  assert.deepEqual(await f.airing(now), [3]);
+  assert.deepEqual(await f.season(now), [4]);
+  assert.deepEqual(await f.popular(now), [5]);
+  assert.deepEqual(calls, [
+    ["community", COMMUNITY],
+    ["TRENDING_DESC", 50],
+    ["airing", sec(now - 6 * H), sec(now + 7 * DAY)],
+    ["FALL", 2026],
+    ["POPULARITY_DESC", 50],
+  ]);
 });
 
-test("schedule runs six-hourly after hourly, on start and every 6th hourly tick", async () => {
-  const order = [];
-  let tick;
-  const schedule = createSchedule(
-    async () => { order.push("h"); },
-    async () => { order.push("6"); },
-    { setInterval: (fn, ms) => { assert.equal(ms, 3_600_000); tick = fn; return 1; }, clearInterval: () => {} },
-  );
-  await schedule.start();
-  for (let i = 0; i < 6; i++) await tick();
-  assert.deepEqual(order, ["h", "6", "h", "h", "h", "h", "h", "h", "6"]);
+test("listFetchers drops community when the url is empty", () => {
+  assert.equal("community" in listFetchers(readConfig({ WARMUP_COMMUNITY_URL: "" }), {}), false);
+});
+
+test("refreshLists stores each list for 30 days and re-fetches it after 15 minutes", async () => {
+  const clock = { now: 0 };
+  const cache = fakeCache(clock);
+  let fetches = 0;
+  const fetchers = { a: async () => { fetches++; return [1, 2]; }, b: async () => [2, 3] };
+
+  assert.deepEqual(await refreshLists(fetchers, clock.now, cache), [1, 2, 3]);
+  assert.deepEqual(cache.get("warmup:list:a"), { data: [1, 2], cachedAt: 0, ttl: 30 * DAY, refreshAfter: 15 * MIN });
+
+  clock.now = 14 * MIN;
+  await refreshLists(fetchers, clock.now, cache);
+  assert.equal(fetches, 1);
+
+  clock.now = 16 * MIN;
+  await refreshLists(fetchers, clock.now, cache);
+  assert.equal(fetches, 2);
+});
+
+test("refreshLists keeps the cached list when a fetch fails and waits 15 minutes to retry", async () => {
+  const clock = { now: 0 };
+  const cache = fakeCache(clock);
+  let ok = true, fetches = 0;
+  const fetchers = { a: async () => { fetches++; if (!ok) throw new Error("down"); return [7]; } };
+  await refreshLists(fetchers, clock.now, cache);
+
+  ok = false;
+  clock.now = 16 * MIN;
+  assert.deepEqual(await refreshLists(fetchers, clock.now, cache), [7]);
+  clock.now = 20 * MIN;
+  await refreshLists(fetchers, clock.now, cache);
+  assert.equal(fetches, 2);
+  clock.now = 32 * MIN;
+  await refreshLists(fetchers, clock.now, cache);
+  assert.equal(fetches, 3);
+});
+
+test("refreshLists treats an empty result as a failure", async () => {
+  const clock = { now: 0 };
+  const cache = fakeCache(clock);
+  let result = [7];
+  const fetchers = { a: async () => result };
+  await refreshLists(fetchers, clock.now, cache);
+  result = [];
+  clock.now = 16 * MIN;
+  assert.deepEqual(await refreshLists(fetchers, clock.now, cache), [7]);
+});
+
+test("warmer tick warms only shows whose probe is due", async () => {
+  const warmed = [];
+  const warmer = createWarmer({
+    cfg: { ...readConfig({}), spacingMs: 0 },
+    collect: async () => [1, 2, 3],
+    isDue: (id) => id !== 2,
+    warm: async (id) => { warmed.push(id); },
+    log: () => {},
+  });
+  await warmer.tick();
+  assert.deepEqual(warmed.sort(), [1, 3]);
+});
+
+test("warmer tick skips while the previous tick is still running and never throws", async () => {
+  let release, collects = 0;
+  const gate = new Promise((r) => { release = r; });
+  const warmer = createWarmer({
+    cfg: { ...readConfig({}), spacingMs: 0 },
+    collect: async () => { collects++; await gate; return [1]; },
+    isDue: () => true,
+    warm: async () => { throw new Error("x"); },
+    log: () => {},
+  });
+  const first = warmer.tick();
+  await warmer.tick();
+  release();
+  await first;
+  assert.equal(collects, 1);
+
+  const broken = createWarmer({ cfg: readConfig({}), collect: async () => { throw new Error("no"); }, isDue: () => true, warm: async () => {}, log: () => {} });
+  await broken.tick();
+});
+
+test("ticker runs immediately and then every minute", async () => {
+  let runs = 0, interval;
+  const ticker = createTicker(async () => { runs++; }, { setInterval: (fn, ms) => { interval = ms; return 1; }, clearInterval: () => {} });
+  await ticker.start();
+  assert.equal(runs, 1);
+  assert.equal(interval, 60_000);
 });

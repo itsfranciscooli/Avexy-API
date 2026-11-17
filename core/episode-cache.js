@@ -89,13 +89,25 @@ async function buildResponse(anilistId, media, anizip, forceRefresh = false) {
   };
 }
 
-function probeInterval(state) {
+function probeInterval(state, now = Date.now()) {
   const airMs = state?.nextAiringAt ? state.nextAiringAt * 1000 : null;
   if (!airMs) return NORMAL_PROBE_INTERVAL;
-  const now = Date.now();
   return now >= airMs - AIRING_EARLY_WINDOW && now <= airMs + AIRING_FAST_WINDOW
     ? AIRING_PROBE_INTERVAL
     : NORMAL_PROBE_INTERVAL;
+}
+
+// The one rule for when a cached show is re-checked: 15 min after its last probe, or 5 min
+// from 10 min before an episode airs until 6 h after. Used by requests and the warmer alike.
+export function isProbeDue(state, now = Date.now()) {
+  if (!state?.lastProbeAt) return true;
+  return now - state.lastProbeAt >= probeInterval(state, now);
+}
+
+// True when the show has never been probed, or its probe interval has passed and no refresh is running.
+export function isRefreshDue(anilistId, now = Date.now()) {
+  if (refreshing.has(`ep-bg:${anilistId}`)) return false;
+  return isProbeDue(get(`sync:${anilistId}`)?.data, now);
 }
 
 // Never rebuild without AniList media: providers match by title, so a rebuild without it would
@@ -177,23 +189,20 @@ function runRefresh(anilistId, entry, oldState) {
 }
 
 function scheduleRefresh(anilistId, entry, env) {
-  if (refreshing.has(`ep-bg:${anilistId}`)) return;
-
-  const oldState = get(`sync:${anilistId}`)?.data;
-  if (oldState?.lastProbeAt && Date.now() - oldState.lastProbeAt < probeInterval(oldState)) return;
-
-  runBackground(env, runRefresh(anilistId, entry, oldState));
+  if (!isRefreshDue(anilistId)) return;
+  runBackground(env, runRefresh(anilistId, entry, get(`sync:${anilistId}`)?.data));
 }
 
-// Used by the cache warmer: builds the response if it isn't cached, otherwise refreshes it now
-// and waits for the refresh (skipping the per-request probe interval, which the warmer replaces).
+// Used by the cache warmer. Same rules as a request: builds the response if it isn't cached;
+// otherwise, once the probe interval has passed, re-checks AniList/ani.zip and waits for it.
+// Rebuilds only when shouldRebuild says so (new episode, airing window), never for finished shows.
 export async function warmEpisodes(anilistId) {
   const entry = await getAsync(`episodes:match3:${anilistId}`);
   if (!entry || !hasCurrentProviders(entry.data)) {
     await getEpisodesResponse(anilistId);
     return;
   }
-  if (refreshing.has(`ep-bg:${anilistId}`)) return;
+  if (!isRefreshDue(anilistId)) return;
   await runRefresh(anilistId, entry, get(`sync:${anilistId}`)?.data);
 }
 
