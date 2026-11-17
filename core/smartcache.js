@@ -17,7 +17,7 @@ function envInt(name, fallback) {
   return raw !== undefined && raw !== "" && Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-// change CACHE_ENABLED=true in .env and set your upstash credentials to enable caching
+// change CACHE_ENABLED=true in .env to enable caching (memory + disk + local Redis)
 export const _CACHE_ENABLED = envBool("CACHE_ENABLED", false);
 
 const IS_LOCAL_NODE = (() => {
@@ -30,9 +30,10 @@ const IS_LOCAL_NODE = (() => {
   } catch { return false; }
 })();
 
-const UPSTASH_REDIS_REST_URL = readEnv("UPSTASH_REDIS_REST_URL") ?? ""; //get it from upstash.com
-const UPSTASH_REDIS_REST_TOKEN = readEnv("UPSTASH_REDIS_REST_TOKEN") ?? "";
-const REDIS_ENABLED = Boolean(UPSTASH_REDIS_REST_URL && UPSTASH_REDIS_REST_TOKEN);
+// REDIS_URL points at a local Redis server (see docker-compose.yml). No external
+// service is required: if Redis isn't reachable, the cache transparently falls back
+// to the in-memory + on-disk tiers below.
+const REDIS_URL = readEnv("REDIS_URL") ?? "redis://127.0.0.1:6379";
 
 // DEFAULT_REDIS_TTL is in seconds (default 900s / 15min) — used as the fallback expiry
 // for Redis writes that don't carry their own computed ttl (see redisWrite below).
@@ -46,23 +47,39 @@ function decodeEntry(raw) {
   return JSON.parse(raw, (_, value) => value === "__Infinity__" ? Infinity : value);
 }
 
+// Local Redis client (Node only — TCP sockets don't exist on edge runtimes, where
+// the cache stays memory-only). redisReady tracks the live connection so commands
+// fail fast to the memory/disk fallback whenever Redis is down or unreachable.
+let redisClient = null;
+let redisReady  = false;
+
+if (IS_LOCAL_NODE && _CACHE_ENABLED) {
+  try {
+    const { default: Redis } = await import("ioredis");
+    redisClient = new Redis(REDIS_URL, {
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+      retryStrategy: (times) => (times > 10 ? null : Math.min(times * 200, 2000)),
+    });
+    redisClient.on("ready", () => { redisReady = true; });
+    redisClient.on("close", () => { redisReady = false; });
+    redisClient.on("error", () => {}); // swallow: avoids crashing on an unhandled 'error' event
+  } catch {
+    redisClient = null;
+  }
+}
+
 async function redisCommand(command) {
-  if (!REDIS_ENABLED || typeof fetch !== "function") return null;
-  const res = await fetch(UPSTASH_REDIS_REST_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${UPSTASH_REDIS_REST_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(command),
-  }).catch(() => null);
-  if (!res?.ok) return null;
-  const json = await res.json().catch(() => null);
-  return json?.result ?? null;
+  if (!redisReady || !redisClient) return null;
+  try {
+    return await redisClient.call(...command);
+  } catch {
+    return null;
+  }
 }
 
 async function redisWrite(key, entry) {
-  if (!REDIS_ENABLED) return;
+  if (!redisReady) return;
   const value = encodeEntry(entry);
   const ttlMs = Number.isFinite(entry.ttl) && entry.ttl > 0 ? entry.ttl : REDIS_TTL_MS;
   await redisCommand(["SET", key, value, "PX", Math.ceil(ttlMs)]);

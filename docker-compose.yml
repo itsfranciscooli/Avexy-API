@@ -1,0 +1,29 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      PORT: "4000"
+      CACHE_ENABLED: "true"
+      REDIS_URL: "redis://redis:6379"
+    ports:
+      - "4000:4000"
+
+volumes:
+  redis-data:

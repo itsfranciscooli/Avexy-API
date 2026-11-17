@@ -198,7 +198,20 @@ cp .env.example .env
 node server.js
 ```
 
-Runs on Node.js. No build step needed.
+Runs on Node.js. No build step needed. Caching runs entirely locally (memory + disk);
+no external service is required.
+
+### Run the full stack (app + local Redis) with Docker
+
+For a self-contained local deployment that includes a Redis cache, use the bundled
+`docker-compose.yml` — it starts the API and a local Redis container together:
+
+```bash
+docker compose up --build
+```
+
+The API comes up on `http://localhost:4000` with `CACHE_ENABLED=true` and
+`REDIS_URL=redis://redis:6379`. Everything is local — no accounts, no external services.
 
 ### Environment variables
 
@@ -206,9 +219,8 @@ Copy `.env.example` to `.env` and fill in the values.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `CACHE_ENABLED` | `false` | Set to `true` to enable caching (memory + disk + Redis). |
-| `UPSTASH_REDIS_REST_URL` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
-| `UPSTASH_REDIS_REST_TOKEN` | — | From [upstash.com](https://upstash.com). Only used when `CACHE_ENABLED=true`. |
+| `CACHE_ENABLED` | `true` | Set to `false` to disable caching. When on, the cache uses in-memory + on-disk tiers, plus a local Redis if one is reachable at `REDIS_URL`. No external service is required. |
+| `REDIS_URL` | `redis://127.0.0.1:6379` | A **local** Redis server (e.g. the one in `docker-compose.yml`). Entirely optional — if Redis isn't running, the cache falls back to memory + disk automatically. |
 | `DEFAULT_REDIS_TTL` | `900` | Seconds. Fallback expiry for Redis writes when a per-item TTL isn't computed. Most cache entries use their own smart TTLs based on anime status (finished/airing/etc.) — this is just the safety-net default. |
 | `PORT` | `4000` | Local dev server port (`server.js` only — ignored on Vercel/serverless). Change it if `4000` is already in use, then hit `http://localhost:PORT`. |
 
@@ -218,14 +230,14 @@ On Vercel (or Railway/Render), set these as regular project environment variable
 
 ## Deploying on Coolify
 
-The repo ships with a `Dockerfile`, so Coolify can build it directly. Caching is **off** by default, so you don't need Redis or Upstash.
+The repo ships with a `Dockerfile`, so Coolify can build it directly. Caching is **on** by default and runs locally (memory + disk) with no external service.
 
 1. In Coolify, create a new resource from this Git repository.
 2. Set **Build Pack** to `Dockerfile`.
 3. Set **Ports Exposes** to `4000`.
 4. Deploy.
 
-No environment variables are required. To turn caching on later, set `CACHE_ENABLED=true` and the two `UPSTASH_REDIS_*` variables in Coolify's environment settings.
+No environment variables are required. If you want a shared Redis cache, run a Redis instance (e.g. a sidecar container) and point `REDIS_URL` at it; otherwise the cache uses memory + disk automatically. Set `CACHE_ENABLED=false` to turn caching off.
 
 ---
 

@@ -2,9 +2,11 @@ FROM node:22-slim
 
 WORKDIR /app
 
+# Caching is fully local (in-memory + on-disk, plus a local Redis when REDIS_URL
+# points at one — see docker-compose.yml). No external service is required.
 ENV NODE_ENV=production \
     PORT=4000 \
-    CACHE_ENABLED=false
+    CACHE_ENABLED=true
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force

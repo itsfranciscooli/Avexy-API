@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
+    "ioredis": "^6.0.0",
     "playwright-core": "^1.63.0",
     "wreq-js": "^3.2.0"
   }
