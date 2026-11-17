@@ -112,4 +112,52 @@ function forgetMedia(anilistId) {
   resolved.delete(Number(anilistId));
 }
 
-export { getMedia, forgetMedia };
+async function graphql(query, variables, fetchImpl = fetch) {
+  try {
+    const res = await fetchImpl("https://graphql.anilist.co", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json", "User-Agent": UA },
+      body: JSON.stringify({ query, variables }),
+    });
+    if (!res?.ok) return null;
+    const json = await res.json();
+    return json?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Walks every page of a Page{} query; on a failed page keeps what was collected so far.
+async function collectPages(query, variables, pick, fetchImpl) {
+  const out = [];
+  for (let page = 1; page <= 50; page++) {
+    const data = await graphql(query, { ...variables, page }, fetchImpl);
+    if (!data?.Page) break;
+    out.push(...pick(data.Page));
+    if (!data.Page.pageInfo?.hasNextPage) break;
+  }
+  return out;
+}
+
+const ids = (media) => (Array.isArray(media) ? media : []).map((m) => m?.id).filter(Number.isInteger);
+
+async function fetchTopAnimeIds(sort, limit, fetchImpl = fetch) {
+  const query = `query($sort:[MediaSort],$perPage:Int){Page(page:1,perPage:$perPage){media(type:ANIME,sort:$sort,isAdult:false){id}}}`;
+  const data = await graphql(query, { sort: [sort], perPage: limit }, fetchImpl);
+  return ids(data?.Page?.media);
+}
+
+async function fetchSeasonAnimeIds(season, year, fetchImpl = fetch) {
+  const query = `query($page:Int,$season:MediaSeason,$year:Int){Page(page:$page,perPage:50){pageInfo{hasNextPage} media(type:ANIME,season:$season,seasonYear:$year,isAdult:false){id}}}`;
+  return collectPages(query, { season, year }, (p) => ids(p.media), fetchImpl);
+}
+
+async function fetchAiringSchedule(fromSec, toSec, fetchImpl = fetch) {
+  const query = `query($page:Int,$from:Int,$to:Int){Page(page:$page,perPage:50){pageInfo{hasNextPage} airingSchedules(airingAt_greater:$from,airingAt_lesser:$to){mediaId airingAt}}}`;
+  return collectPages(query, { from: fromSec, to: toSec }, (p) =>
+    (Array.isArray(p.airingSchedules) ? p.airingSchedules : [])
+      .filter((a) => Number.isInteger(a?.mediaId) && Number.isFinite(a?.airingAt))
+      .map(({ mediaId, airingAt }) => ({ mediaId, airingAt })), fetchImpl);
+}
+
+export { getMedia, forgetMedia, fetchTopAnimeIds, fetchSeasonAnimeIds, fetchAiringSchedule };
