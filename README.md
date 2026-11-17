@@ -57,6 +57,19 @@ GET /status
 ```
 Returns the health of the API (version, uptime, memory) and of each cache tier: memory and disk entry counts, plus the Redis connection state, latency and key count. The top-level `status` is `ok`, or `degraded` when caching is on but Redis is unreachable. In that case the cache keeps working from memory and disk. The response is never cached.
 
+It also reports how each provider's site has been answering this server, under `providers.sources`, e.g. `"animedunya": { "summary": "blocked (403) since 2026-11-17T09:12:44Z", ... }`. Each provider is one of:
+
+| Status | Meaning |
+|---|---|
+| `ok` | The site's latest real answer had data. |
+| `blocked` | The site answered 401/403, usually because it blocks this server's IP. |
+| `rate limited` | The site answered 429. |
+| `error` | 5xx or a network failure (timeout, connection reset). |
+| `no matches` | At least 5 recent lookups and none found the show. A site that never matches popular shows is often blocking quietly. |
+| `not checked yet` | No lookup has reached the site since the server started. |
+
+Only real calls to the site count; cache hits and AniList outages don't. Each entry also gives `lastCheckedAt`, `lastOkAt`, `lastError` and counts of the last 20 outcomes. `providers.summary` counts providers per status. The data lives in memory, so it resets on restart; with cache warming on, it fills within a few minutes.
+
 ```
 GET /map/:anilistId
 ```

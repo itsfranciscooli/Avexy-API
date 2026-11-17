@@ -2,20 +2,38 @@ import {
   getAsync, setAsync, isFresh, needsRefresh,
   episodeTTL,
 } from "./smartcache.js";
-import { getEpisodes as mkissaEpisodes } from "../providers/mkissa.js";
-import { getEpisodes as reanimeEpisodes } from "../providers/reanime.js";
-import { getEpisodes as anikotoEpisodes } from "../providers/anikoto.js";
-import { getEpisodes as animeggEpisodes } from "../providers/animegg.js";
-import { getEpisodes as animenosubEpisodes } from "../providers/animenosub.js";
-import { getEpisodes as anizoneEpisodes } from "../providers/anizone.js";
-import { getEpisodes as aniwavesEpisodes } from "../providers/aniwaves.js";
-import { getEpisodes as senshiEpisodes } from "../providers/senshi.js";
-import { getEpisodes as kaaEpisodes    } from "../providers/kickassanime.js";
-import { getEpisodes as animedunyaEpisodes } from "../providers/animedunya.js";
-import { getEpisodes as animeonsenEpisodes } from "../providers/animeonsen.js";
-import { getEpisodes as anipmEpisodes } from "../providers/anipm.js";
-import { getEpisodes as gogoanimeEpisodes } from "../providers/gogoanime.js";
-import { getEpisodes as animesaturnEpisodes } from "../providers/animesaturn.js";
+import { getEpisodes as mkissaEpisodesRaw } from "../providers/mkissa.js";
+import { getEpisodes as reanimeEpisodesRaw } from "../providers/reanime.js";
+import { getEpisodes as anikotoEpisodesRaw } from "../providers/anikoto.js";
+import { getEpisodes as animeggEpisodesRaw } from "../providers/animegg.js";
+import { getEpisodes as animenosubEpisodesRaw } from "../providers/animenosub.js";
+import { getEpisodes as anizoneEpisodesRaw } from "../providers/anizone.js";
+import { getEpisodes as aniwavesEpisodesRaw } from "../providers/aniwaves.js";
+import { getEpisodes as senshiEpisodesRaw } from "../providers/senshi.js";
+import { getEpisodes as kaaEpisodesRaw } from "../providers/kickassanime.js";
+import { getEpisodes as animedunyaEpisodesRaw } from "../providers/animedunya.js";
+import { getEpisodes as animeonsenEpisodesRaw } from "../providers/animeonsen.js";
+import { getEpisodes as anipmEpisodesRaw } from "../providers/anipm.js";
+import { getEpisodes as gogoanimeEpisodesRaw } from "../providers/gogoanime.js";
+import { getEpisodes as animesaturnEpisodesRaw } from "../providers/animesaturn.js";
+import { trackProvider } from "./provider-health.js";
+
+// Every real upstream call is recorded for GET /status (cache hits never reach these).
+const mkissaEpisodes      = trackProvider("mkissa", mkissaEpisodesRaw);
+const reanimeEpisodes     = trackProvider("reanime", reanimeEpisodesRaw);
+const anikotoEpisodes     = trackProvider("anikoto", anikotoEpisodesRaw);
+const animeggEpisodes     = trackProvider("animegg", animeggEpisodesRaw);
+const animenosubEpisodes  = trackProvider("animenosub", animenosubEpisodesRaw);
+const anizoneEpisodes     = trackProvider("anizone", anizoneEpisodesRaw);
+const aniwavesEpisodes    = trackProvider("aniwaves", aniwavesEpisodesRaw);
+const senshiEpisodes      = trackProvider("senshi", senshiEpisodesRaw);
+const kaaEpisodes         = trackProvider("kaa", kaaEpisodesRaw);
+const animedunyaEpisodes  = trackProvider("animedunya", animedunyaEpisodesRaw);
+const animeonsenEpisodes  = trackProvider("animeonsen", animeonsenEpisodesRaw);
+const anipmEpisodes       = trackProvider("anipm", anipmEpisodesRaw);
+const gogoanimeEpisodes   = trackProvider("gogoanime", gogoanimeEpisodesRaw);
+const animesaturnEpisodes = trackProvider("animesaturn", animesaturnEpisodesRaw);
+
 const inflight  = new Map();
 const bgRunning = new Set();
 

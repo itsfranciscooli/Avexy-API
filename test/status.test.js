@@ -12,6 +12,7 @@ process.env.REDIS_URL = "redis://127.0.0.1:1";
 delete process.env.VERCEL;
 const cache = await import("../core/smartcache.js");
 const { default: worker } = await import("../index.js");
+const { recordProviderFailure } = await import("../core/provider-health.js");
 
 test("GET /status reports api and cache tiers", async () => {
   const log = console.log;
@@ -22,6 +23,7 @@ test("GET /status reports api and cache tiers", async () => {
     console.log = log;
   }
   await new Promise((r) => setTimeout(r, 50));
+  recordProviderFailure("animedunya", new Error("AnimeDunya HTTP 403 fetching https://anime-dunya.com/en/anime/1"));
 
   const res = await worker.fetch(new Request("http://localhost/status"), { API_VERSION: "test" });
   assert.equal(res.status, 200);
@@ -37,6 +39,10 @@ test("GET /status reports api and cache tiers", async () => {
   assert.equal(body.cache.disk.entries, 1);
   assert.equal(body.cache.redis.status, "disconnected");
   assert.equal(JSON.stringify(body).includes("redis://"), false);
+  assert.equal(body.providers.sources.animedunya.status, "blocked");
+  assert.match(body.providers.sources.animedunya.summary, /^blocked \(403\) since /);
+  assert.equal(body.providers.sources.gogoanime.status, "not checked yet");
+  assert.equal(Object.keys(body.providers.sources).length, 14);
 
   rmSync(dir, { recursive: true, force: true });
   process.exit(0);

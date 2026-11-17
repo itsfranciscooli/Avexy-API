@@ -17,6 +17,7 @@ import animesaturnHandler          from "./providers/animesaturn.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
 import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED, cacheStatus } from "./core/smartcache.js";
+import { PROVIDERS, providerHealth, recordProviderSuccess, recordProviderFailure } from "./core/provider-health.js";
 
 const STARTED_AT = Date.now();
 
@@ -58,6 +59,7 @@ async function statusResponse(env) {
       memoryMb:      processMemoryMb(),
     },
     cache,
+    providers: providerHealth(),
   });
   res.headers.set("Cache-Control", "no-store");
   return res;
@@ -65,6 +67,19 @@ async function statusResponse(env) {
 
 const watchInflight = new Map();
 const SIGNED_STREAM_WATCH_TTL = 60_000;
+
+// Watch handlers catch their own errors and answer with { error }, so the
+// outcome is read back from the response. cacheKey is "watch:<provider>:...".
+async function recordWatchOutcome(cacheKey, response) {
+  const provider = cacheKey.split(":")[1];
+  if (response.status < 400) return recordProviderSuccess(provider);
+  let message = `HTTP ${response.status}`;
+  try {
+    const body = await response.clone().json();
+    if (body?.error) message = String(body.error);
+  } catch {}
+  recordProviderFailure(provider, { message, status: response.status === 500 ? undefined : response.status });
+}
 
 async function cachedWatch(cacheKey, handlerFn, ttl = WATCH_TTL) {
   const entry = await getAsync(cacheKey);
@@ -79,6 +94,7 @@ async function cachedWatch(cacheKey, handlerFn, ttl = WATCH_TTL) {
 
   const promise = (async () => {
     const response = await handlerFn();
+    await recordWatchOutcome(cacheKey, response);
     if (response.status === 200) {
       try {
         const data = await response.clone().json();
@@ -307,22 +323,7 @@ export default {
     return json({
       name: `Avexy API ${env?.API_VERSION ?? "unknown"}`,
       cache: _CACHE_ENABLED,
-      providers: [
-        "mkissa",
-        "reanime",
-        "anikoto",
-        "animegg",
-        "animenosub",
-        "anizone",
-        "aniwaves",
-        "senshi",
-        "kaa",
-        "animedunya",
-        "animeonsen",
-        "anipm",
-        "gogoanime",
-        "animesaturn",
-      ],
+      providers: PROVIDERS,
       routes: [
         "/status",
         "/map/:anilistId",
