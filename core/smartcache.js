@@ -168,6 +168,20 @@ export async function getAsync(key) {
   }
 }
 
+function formatTtl(ms) {
+  if (!Number.isFinite(ms)) return "forever";
+  if (ms >= 86_400_000) return `${Math.round(ms / 86_400_000)}d`;
+  if (ms >= 3_600_000)  return `${Math.round(ms / 3_600_000)}h`;
+  if (ms >= 60_000)     return `${Math.round(ms / 60_000)}m`;
+  return `${Math.round(ms / 1000)}s`;
+}
+
+// One line per cached result. sync:* keys are internal refresh bookkeeping, not results.
+function logStored(key, ttlMs) {
+  if (key.startsWith("sync:")) return;
+  console.log(`[cache] stored ${key} (ttl ${formatTtl(ttlMs)})`);
+}
+
 function setLocal(key, data, ttlMs, refreshAfterMs) {
   const now   = Date.now();
   const entry = {
@@ -181,6 +195,7 @@ function setLocal(key, data, ttlMs, refreshAfterMs) {
   mem.set(key, entry);
   evict();
   diskWrite(key, entry);
+  logStored(key, ttlMs);
   return entry;
 }
 
