@@ -98,8 +98,11 @@ function probeInterval(state) {
     : NORMAL_PROBE_INTERVAL;
 }
 
-function shouldRebuild(entry, media, anizip) {
-  if ((media?.status ?? "RELEASING") === "FINISHED") return false;
+// Never rebuild without AniList media: providers match by title, so a rebuild without it would
+// wipe good cached data (e.g. when AniList rate-limits us). The next refresh will retry.
+export function shouldRebuild(entry, media, anizip) {
+  if (!media) return false;
+  if (media.status === "FINISHED") return false;
 
   const cachedLatest = latestEpisodeFromResponse(entry?.data) ?? 0;
   const knownLatest = Math.max(

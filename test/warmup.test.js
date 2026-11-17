@@ -10,12 +10,12 @@ const COMMUNITY = "https://myanimezone.xyz/api/community/trending";
 const sec = (ms) => Math.floor(ms / 1000);
 
 test("readConfig defaults", () => {
-  assert.deepEqual(readConfig({}), { enabled: true, limit: 50, concurrency: 3, communityUrl: COMMUNITY });
+  assert.deepEqual(readConfig({}), { enabled: true, limit: 50, concurrency: 3, communityUrl: COMMUNITY, spacingMs: 1000 });
 });
 
 test("readConfig falls back on bad values and honours an empty community url", () => {
   const c = readConfig({ WARMUP_LIMIT: "abc", WARMUP_CONCURRENCY: "0", WARMUP_ENABLED: "false", WARMUP_COMMUNITY_URL: "" });
-  assert.deepEqual(c, { enabled: false, limit: 50, concurrency: 3, communityUrl: "" });
+  assert.deepEqual(c, { enabled: false, limit: 50, concurrency: 3, communityUrl: "", spacingMs: 1000 });
 });
 
 test("currentSeason boundaries", () => {
@@ -83,7 +83,7 @@ test("collect functions tolerate a failing source", async () => {
 test("job skips a run while the previous one is still going", async () => {
   let release, collects = 0;
   const gate = new Promise((r) => { release = r; });
-  const job = createJob("t", async () => { collects++; await gate; return [1]; }, async () => {}, readConfig({}), () => {});
+  const job = createJob("t", async () => { collects++; await gate; return [1]; }, async () => {}, { ...readConfig({}), spacingMs: 0 }, () => {});
   const first = job.run();
   assert.equal(await job.run(), null);
   release();
@@ -93,9 +93,21 @@ test("job skips a run while the previous one is still going", async () => {
 
 test("job warms every collected id and never throws", async () => {
   const warmed = [];
-  const job = createJob("t", async () => [1, 2], async (id) => { warmed.push(id); if (id === 1) throw new Error("x"); }, readConfig({}), () => {});
+  const job = createJob("t", async () => [1, 2], async (id) => { warmed.push(id); if (id === 1) throw new Error("x"); }, { ...readConfig({}), spacingMs: 0 }, () => {});
   assert.deepEqual(await job.run(), [1, 2]);
   assert.deepEqual(warmed.sort(), [1, 2]);
-  const broken = createJob("t", async () => { throw new Error("collect failed"); }, async () => {}, readConfig({}), () => {});
+  const broken = createJob("t", async () => { throw new Error("collect failed"); }, async () => {}, { ...readConfig({}), spacingMs: 0 }, () => {});
   assert.deepEqual(await broken.run(), []);
+});
+
+test("runWithConcurrency spaces out the start of each item", async () => {
+  const starts = [];
+  await runWithConcurrency([1, 2, 3, 4], 3, async () => { starts.push(Date.now()); }, 40);
+  starts.sort((a, b) => a - b);
+  // Cumulative check: the start rate is what matters; single gaps jitter with the ~15ms Windows timer.
+  for (let i = 1; i < starts.length; i++) assert.ok(starts[i] - starts[0] >= i * 40 - 16, `start ${i} at +${starts[i] - starts[0]}ms`);
+});
+
+test("readConfig spaces shows 1s apart by default", () => {
+  assert.equal(readConfig({}).spacingMs, 1000);
 });

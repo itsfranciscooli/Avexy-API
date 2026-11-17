@@ -28,6 +28,9 @@ export function readConfig(env) {
     limit: envInt(env, "WARMUP_LIMIT", 50),
     concurrency: envInt(env, "WARMUP_CONCURRENCY", 3),
     communityUrl: env.WARMUP_COMMUNITY_URL ?? DEFAULT_COMMUNITY_URL,
+    // Minimum gap between starting two shows. Each show costs a few AniList calls, so this keeps
+    // the warmer well under AniList's ~90 requests/minute limit, leaving room for real users.
+    spacingMs: 1000,
   };
 }
 
@@ -41,12 +44,16 @@ export function mergeIds(lists) {
   return [...new Set(lists.flat())];
 }
 
-export async function runWithConcurrency(items, n, fn) {
+export async function runWithConcurrency(items, n, fn, spacingMs = 0) {
   const stats = { ok: 0, failed: 0 };
   let next = 0;
+  let nextStartAt = 0;
   async function worker() {
     while (next < items.length) {
       const item = items[next++];
+      const wait = nextStartAt - Date.now();
+      nextStartAt = Math.max(Date.now(), nextStartAt) + spacingMs;
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       try { await fn(item); stats.ok++; }
       catch { stats.failed++; }
     }
@@ -88,7 +95,7 @@ export function createJob(name, collect, warm, cfg, log) {
       const started = Date.now();
       try {
         const ids = await collect().catch((e) => { log(`[warmup:${name}] collect failed: ${e.message}`); return []; });
-        const { ok, failed } = await runWithConcurrency(ids, cfg.concurrency, warm);
+        const { ok, failed } = await runWithConcurrency(ids, cfg.concurrency, warm, cfg.spacingMs);
         log(`[warmup:${name}] ${ids.length} shows, ${ok} warmed, ${failed} failed in ${Math.round((Date.now() - started) / 1000)}s`);
         return ids;
       } finally {
