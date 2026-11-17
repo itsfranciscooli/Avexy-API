@@ -124,47 +124,43 @@ function writeSyncState(anilistId, state, ttl = FULL_TTL) {
   set(`sync:${anilistId}`, state, ttl, NORMAL_PROBE_INTERVAL);
 }
 
-function scheduleRefresh(anilistId, entry, env) {
-  const key = `ep-bg:${anilistId}`;
-  if (refreshing.has(key)) return;
+async function refreshEpisodes(anilistId, entry, oldState) {
+  const [media, anizip] = await resolveShared(anilistId, true);
+  const cachedLatest = latestEpisodeFromResponse(entry?.data);
+  const next = media?.nextAiringEpisode ?? null;
 
-  const syncKey = `sync:${anilistId}`;
-  const oldState = get(syncKey)?.data;
-  const now = Date.now();
-  if (oldState?.lastProbeAt && now - oldState.lastProbeAt < probeInterval(oldState)) return;
-
-  refreshing.add(key);
-  writeSyncState(anilistId, { ...oldState, lastProbeAt: now, syncing: true });
-
-  const task = (async () => {
-    const [media, anizip] = await resolveShared(anilistId, true);
-    const cachedLatest = latestEpisodeFromResponse(entry?.data);
-    const next = media?.nextAiringEpisode ?? null;
-
-    if (!shouldRebuild(entry, media, anizip)) {
-      writeSyncState(anilistId, {
-        lastProbeAt: Date.now(),
-        lastSyncAt: oldState?.lastSyncAt ?? null,
-        latestEpisode: cachedLatest,
-        nextEpisode: next?.episode ?? null,
-        nextAiringAt: next?.airingAt ?? null,
-        syncing: false,
-      });
-      return;
-    }
-
-    const result = await buildResponse(anilistId, media, anizip, true);
-    const latestEpisode = latestEpisodeFromResponse(result);
-    await setAsync(`episodes:match3:${anilistId}`, result, FULL_TTL, NORMAL_PROBE_INTERVAL);
+  if (!shouldRebuild(entry, media, anizip)) {
     writeSyncState(anilistId, {
       lastProbeAt: Date.now(),
-      lastSyncAt: Date.now(),
-      latestEpisode,
+      lastSyncAt: oldState?.lastSyncAt ?? null,
+      latestEpisode: cachedLatest,
       nextEpisode: next?.episode ?? null,
       nextAiringAt: next?.airingAt ?? null,
       syncing: false,
     });
-  })()
+    return;
+  }
+
+  const result = await buildResponse(anilistId, media, anizip, true);
+  const latestEpisode = latestEpisodeFromResponse(result);
+  await setAsync(`episodes:match3:${anilistId}`, result, FULL_TTL, NORMAL_PROBE_INTERVAL);
+  writeSyncState(anilistId, {
+    lastProbeAt: Date.now(),
+    lastSyncAt: Date.now(),
+    latestEpisode,
+    nextEpisode: next?.episode ?? null,
+    nextAiringAt: next?.airingAt ?? null,
+    syncing: false,
+  });
+}
+
+// Marks the show as syncing, runs refreshEpisodes, and records any error in its sync state.
+function runRefresh(anilistId, entry, oldState) {
+  const key = `ep-bg:${anilistId}`;
+  refreshing.add(key);
+  writeSyncState(anilistId, { ...oldState, lastProbeAt: Date.now(), syncing: true });
+
+  return refreshEpisodes(anilistId, entry, oldState)
     .catch((e) => {
       console.error(`[ep-bg:${anilistId}]`, e.message);
       writeSyncState(anilistId, {
@@ -175,8 +171,27 @@ function scheduleRefresh(anilistId, entry, env) {
       }, HOUR);
     })
     .finally(() => refreshing.delete(key));
+}
 
-  runBackground(env, task);
+function scheduleRefresh(anilistId, entry, env) {
+  if (refreshing.has(`ep-bg:${anilistId}`)) return;
+
+  const oldState = get(`sync:${anilistId}`)?.data;
+  if (oldState?.lastProbeAt && Date.now() - oldState.lastProbeAt < probeInterval(oldState)) return;
+
+  runBackground(env, runRefresh(anilistId, entry, oldState));
+}
+
+// Used by the cache warmer: builds the response if it isn't cached, otherwise refreshes it now
+// and waits for the refresh (skipping the per-request probe interval, which the warmer replaces).
+export async function warmEpisodes(anilistId) {
+  const entry = await getAsync(`episodes:match3:${anilistId}`);
+  if (!entry || !hasCurrentProviders(entry.data)) {
+    await getEpisodesResponse(anilistId);
+    return;
+  }
+  if (refreshing.has(`ep-bg:${anilistId}`)) return;
+  await runRefresh(anilistId, entry, get(`sync:${anilistId}`)?.data);
 }
 
 export async function getEpisodesResponse(anilistId, env) {
