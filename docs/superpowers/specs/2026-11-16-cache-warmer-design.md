@@ -38,7 +38,11 @@ Four AniList lists, merged and deduplicated by AniList ID:
    exhaustion. Season from today's date: Winter Jan–Mar, Spring Apr–Jun, Summer Jul–Sep,
    Fall Oct–Dec.
 
-`WARMUP_LIMIT` caps lists 1 and 2 only; lists 3 and 4 are always complete.
+5. **MyAnimeZone community trending** — `GET https://myanimezone.xyz/api/community/trending`,
+   which returns `{ windowDays, mostSaved: [{ animeId, … }], mostSeen: [{ animeId, … }] }`.
+   `animeId` is an AniList ID. Both arrays are used.
+
+`WARMUP_LIMIT` caps lists 1 and 2 only; lists 3–5 are always complete.
 
 ## Cadence
 
@@ -50,6 +54,10 @@ Four AniList lists, merged and deduplicated by AniList ID:
   whole release day including the hours after it drops, while providers pick it up).
 - The four AniList lists are re-fetched every 6 h; the airs-today set is recomputed every
   tick from the cached week schedule (no extra fetch).
+- The community trending list (5) is re-fetched **every tick (hourly)**. A newly listed show
+  has never been refreshed, so it is warmed on that same tick; after that it follows the
+  same 6 h / 1 h rule as everything else. If the fetch fails, the previous community list
+  is kept.
 - On boot every show is due, so the whole set warms immediately.
 - Work is throttled to `WARMUP_CONCURRENCY` (default **3**) shows at a time.
 
@@ -77,6 +85,7 @@ something changed or the show is still releasing; finished, unchanged shows are 
 | `WARMUP_CONCURRENCY` | `3` |
 | `WARMUP_REFRESH_HOURS` | `6` |
 | `WARMUP_AIRING_REFRESH_HOURS` | `1` |
+| `WARMUP_COMMUNITY_URL` | `https://myanimezone.xyz/api/community/trending` (empty string disables) |
 
 ## Files
 
