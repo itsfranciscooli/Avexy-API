@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Anivexa API — Docs</title>
-  <meta name="description" content="Anivexa API documentation — a unified anime streaming aggregator API with 12 providers, AniList ID mapping, and guarded fuzzy matching."/>
+  <title>Avexy API — Docs</title>
+  <meta name="description" content="Avexy API documentation — a unified anime streaming aggregator API with 12 providers, AniList ID mapping, and guarded fuzzy matching."/>
   <link rel="icon" type="image/svg+xml" href="logo.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -25,8 +25,8 @@
 <div class="overlay" id="overlay"></div>
 
 <div class="topbar">
-  <img src="logo.svg" alt="Anivexa"/>
-  <span class="topbar-title">Anivexa</span>
+  <img src="logo.svg" alt="Avexy"/>
+  <span class="topbar-title">Avexy</span>
   <button class="menu-btn" id="menuBtn" aria-label="Toggle menu">
     <span></span><span></span><span></span>
   </button>
@@ -34,8 +34,8 @@
 
 <nav class="sidebar" id="sidebar">
     <div class="logo">
-      <img src="logo.svg" alt="Anivexa"/>
-      <span class="logo-text">Anivexa API</span>
+      <img src="logo.svg" alt="Avexy"/>
+      <span class="logo-text">Avexy API</span>
       <span class="logo-version">v{{API_VERSION}}</span>
     </div>
     <div class="nav">
@@ -44,6 +44,7 @@
         <a class="nav-item" href="#overview">Overview</a>
         <a class="nav-item" href="#base-url">Base URL</a>
         <a class="nav-item" href="#providers-ref">Providers</a>
+        <a class="nav-item" href="#caching">Caching</a>
       </div>
       <div class="nav-section">
         <div class="nav-label">Core</div>
@@ -66,6 +67,8 @@
         <a class="nav-item" href="#watch-animedunya"><span class="method">GET</span>AnimeDunya</a>
         <a class="nav-item" href="#watch-animeonsen"><span class="method">GET</span>AnimeOnsen</a>
         <a class="nav-item" href="#watch-anipm"><span class="method">GET</span>Ani.pm</a>
+        <a class="nav-item" href="#watch-gogoanime"><span class="method">GET</span>Gogoanime</a>
+        <a class="nav-item" href="#watch-animesaturn"><span class="method">GET</span>AnimeSaturn</a>
       </div>
     </div>
   </nav>
@@ -75,9 +78,10 @@
   <main class="main">
 
     <section class="section section-hero" id="overview">
-      <img src="logo.svg" alt="Anivexa" class="hero-logo"/>
-      <h1>Anivexa API</h1>
-      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 12 providers using a single AniList ID, with title and installment checks for fuzzy-search catalogs.</p>
+      <img src="logo.svg" alt="Avexy" class="hero-logo"/>
+      <h1>Avexy API</h1>
+      <p>A unified anime streaming aggregator API. Resolve episode lists and stream sources across 12 providers using a single AniList ID, with title and installment checks for fuzzy-search catalogs. Popular, seasonal and airing shows are cached ahead of time, so the first request for them is already fast.</p>
+      <p>Avexy is a fork of <a href="https://github.com/walterwhite-69/Anivexa-API" target="_blank" rel="noopener noreferrer">Anivexa API</a>, maintained by the <a href="https://myanimezone.xyz" target="_blank" rel="noopener noreferrer">MyAnimeZone Team</a>.</p>
       <div class="callout">
         <span class="callout-icon">💡</span>
         <span>All endpoints are read-only. No authentication required. All responses are JSON with CORS headers included.</span>
@@ -112,6 +116,35 @@
         <div class="provider-card" style="--i:13"><div class="provider-name">animedunya</div><div class="provider-meta">AnimeDunya</div></div>
         <div class="provider-card" style="--i:14"><div class="provider-name">animeonsen</div><div class="provider-meta">AnimeOnsen</div></div>
         <div class="provider-card" style="--i:15"><div class="provider-name">anipm</div><div class="provider-meta">Ani.pm</div></div>
+        <div class="provider-card" style="--i:16"><div class="provider-name">gogoanime</div><div class="provider-meta">Gogoanime</div></div>
+        <div class="provider-card" style="--i:17"><div class="provider-name">animesaturn</div><div class="provider-meta">AnimeSaturn (ITA)</div></div>
+      </div>
+    </section>
+
+    <section class="section" id="caching">
+      <h2>Caching</h2>
+      <p>Responses are cached locally in memory and on disk, plus a local Redis when one is reachable. No external service is needed. Cached responses are returned immediately and refreshed in the background, so a request never waits on a refresh.</p>
+      <table class="params-table">
+        <thead><tr><th>Data</th><th>Kept for</th><th>Refreshed</th></tr></thead>
+        <tbody>
+          <tr><td class="param-name">Episode lists</td><td class="param-type">30 days</td><td class="param-desc">Re-checked against AniList and ani.zip 15 min after the last check, or every 5 min from 10 min before an episode airs until 6 h after. Re-scraped only when something changed or the show is still airing. Finished, unchanged shows are left alone.</td></tr>
+          <tr><td class="param-name">ID mappings</td><td class="param-type">30 days / 12 h</td><td class="param-desc">30 days for finished shows, 12 hours for everything else.</td></tr>
+          <tr><td class="param-name">Stream links</td><td class="param-type">3 h / 1 min</td><td class="param-desc">Signed links that expire quickly upstream are kept for 1 minute.</td></tr>
+        </tbody>
+      </table>
+      <h3>Pre-cached shows</h3>
+      <p>The server keeps these shows cached even before anyone requests them, using the same rules as the episode lists above:</p>
+      <ul>
+        <li>MyAnimeZone community trending</li>
+        <li>AniList trending now</li>
+        <li>Every show airing today and this week</li>
+        <li>Every show in the current season</li>
+        <li>AniList most popular of all time</li>
+      </ul>
+      <p>Each of these lists is itself cached for 30 days and re-fetched every 15 minutes. If a source is down, the last good list is kept.</p>
+      <div class="callout">
+        <span class="callout-icon">💡</span>
+        <span>The <code>cache</code> field of <code>GET /</code> shows whether caching is on. Set <code>CACHE_ENABLED=false</code> to turn it off, or <code>WARMUP_ENABLED=false</code> to keep caching but skip pre-caching.</span>
       </div>
     </section>
 
@@ -130,8 +163,8 @@
         </div>
         <div class="code-label">Response</div>
         <pre><code><span class="p">{</span>
-  <span class="n">"name"</span><span class="p">:</span> <span class="s">"Anivexa API {{API_VERSION}}"</span><span class="p">,</span>
-  <span class="n">"cache"</span><span class="p">:</span> <span class="b">false</span><span class="p">,</span>
+  <span class="n">"name"</span><span class="p">:</span> <span class="s">"Avexy API {{API_VERSION}}"</span><span class="p">,</span>
+  <span class="n">"cache"</span><span class="p">:</span> <span class="b">true</span><span class="p">,</span>
   <span class="n">"providers"</span><span class="p">: [</span><span class="s">"mkissa"</span><span class="p">,</span> <span class="s">"reanime"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">],</span>
   <span class="n">"routes"</span><span class="p">: [</span><span class="s">"/map/:anilistId"</span><span class="p">,</span> <span class="s">"..."</span><span class="p">]</span>
 <span class="p">}</span></code></pre>
@@ -157,9 +190,17 @@
         </div>
         <div class="code-label">Example — /map/16498</div>
         <pre><code><span class="p">{</span>
-  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">16498</span><span class="p">,</span>
-  <span class="n">"malId"</span><span class="p">:</span> <span class="b">16498</span><span class="p">,</span>
-  <span class="n">"kitsuId"</span><span class="p">:</span> <span class="b">7442</span>
+  <span class="n">"mappings"</span><span class="p">: {</span>
+    <span class="n">"id"</span><span class="p">:</span>        <span class="b">16498</span><span class="p">,</span>
+    <span class="n">"title"</span><span class="p">:</span>     <span class="s">"Attack on Titan"</span><span class="p">,</span>
+    <span class="n">"format"</span><span class="p">:</span>    <span class="s">"TV"</span><span class="p">,</span>
+    <span class="n">"episodes"</span><span class="p">:</span>  <span class="b">25</span><span class="p">,</span>
+    <span class="n">"malId"</span><span class="p">:</span>     <span class="b">16498</span><span class="p">,</span>
+    <span class="n">"kitsuId"</span><span class="p">:</span>   <span class="b">7442</span><span class="p">,</span>
+    <span class="n">"anidbId"</span><span class="p">:</span>   <span class="b">9541</span><span class="p">,</span>
+    <span class="n">"thetvdbId"</span><span class="p">:</span> <span class="b">267440</span><span class="p">,</span>
+    <span class="s">"..."</span>
+  <span class="p">}</span>
 <span class="p">}</span></code></pre>
       </div>
     </section>
@@ -173,7 +214,7 @@
           <a class="try-btn" href="/episodes/16498" target="_blank">Try it ↗</a>
         </div>
         <div class="endpoint-body">
-          <p class="endpoint-desc">Fetches episode lists from all providers in parallel for the given AniList ID. Each provider key contains either its episode data or an error object if unavailable.</p>
+          <p class="endpoint-desc">Fetches episode lists from all providers in parallel for the given AniList ID, together with the ID mappings. Each provider key contains either its episode data or an error object if unavailable. The response is cached and refreshed in the background (see <a href="#caching">Caching</a>).</p>
           <table class="params-table">
             <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
             <tbody>
@@ -183,6 +224,9 @@
         </div>
         <div class="code-label">Response shape</div>
         <pre><code><span class="p">{</span>
+  <span class="n">"page"</span><span class="p">:</span>     <span class="b">1</span><span class="p">,</span>
+  <span class="n">"type"</span><span class="p">:</span>     <span class="s">"all"</span><span class="p">,</span>
+  <span class="n">"mappings"</span><span class="p">: {</span> <span class="s">"..."</span> <span class="p">},</span>
   <span class="n">"reanime"</span><span class="p">: {</span>
     <span class="n">"meta"</span><span class="p">: {</span> <span class="n">"title"</span><span class="p">:</span> <span class="s">"Attack on Titan"</span><span class="p">,</span> <span class="n">"malId"</span><span class="p">:</span> <span class="b">16498</span> <span class="p">},</span>
     <span class="n">"episodes"</span><span class="p">: {</span>
@@ -212,7 +256,7 @@
           <a class="try-btn" href="/episodes/reanime/16498" target="_blank">Try it ↗</a>
         </div>
         <div class="endpoint-body">
-          <p class="endpoint-desc">Fetch episode data from one or more specific providers. Chain multiple provider names in the path. Use <code>?map=false</code> to skip the ID map lookup.</p>
+          <p class="endpoint-desc">Fetch episode data from one or more specific providers. Chain multiple provider names in the path. The response has <code>"type": "filtered"</code> and the same per-provider shape as the full episodes response. Use <code>?map=false</code> to skip the ID map lookup.</p>
           <table class="params-table">
             <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
             <tbody>
@@ -296,7 +340,7 @@
           <a class="try-btn" href="/stream/reanime/16498/sub/1" target="_blank">Try it ↗</a>
         </div>
         <div class="endpoint-body">
-          <p class="endpoint-desc">Direct stream variant — returns the raw stream response without the watch wrapper. Useful for direct playback.</p>
+          <p class="endpoint-desc">Direct stream variant: responds with a 302 redirect straight to the HLS stream, without the watch wrapper. Useful for direct playback.</p>
         </div>
       </div>
     </section>
@@ -586,6 +630,55 @@
   <span class="n">"streams"</span><span class="p">:</span> <span class="p">[</span>
     <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://media.settlar.io/.../master.m3u8"</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"Ani.pm"</span><span class="p">,</span> <span class="n">"subtitleType"</span><span class="p">:</span> <span class="s">"softsub"</span> <span class="p">},</span>
     <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://media.settlar.io/.../master.m3u8"</span><span class="p">,</span> <span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">,</span> <span class="n">"server"</span><span class="p">:</span> <span class="s">"Ani.pm"</span><span class="p">,</span> <span class="n">"subtitleType"</span><span class="p">:</span> <span class="s">"hardsub"</span> <span class="p">}</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+      </div>
+    </section>
+
+    <section class="section" id="watch-gogoanime">
+      <h2>Gogoanime</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/gogoanime/<span class="param">:id</span>/<span class="param">sub|dub</span>/gogoanime-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/gogoanime/182255/sub/gogoanime-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">English sub and dub (dubs are separate series on the site). Each player is resolved to direct HLS or MP4 where possible, with subtitle tracks on MegaVid sources; the original embed is kept as a fallback.</p>
+        </div>
+        <div class="code-label">Response</div>
+        <pre><code><span class="p">{</span>
+  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">182255</span><span class="p">,</span>
+  <span class="n">"episode"</span><span class="p">:</span> <span class="b">1</span><span class="p">,</span>
+  <span class="n">"audio"</span><span class="p">:</span> <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"streams"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://cp.megavid.buzz/hls/.../playlist.m3u8"</span><span class="p">, </span><span class="n">"type"</span><span class="p">:</span> <span class="s">"hls"</span><span class="p">, </span><span class="n">"server"</span><span class="p">:</span> <span class="s">"Mega"</span> <span class="p">}</span>,
+    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://megavid.buzz/mal/59978/1/sub"</span><span class="p">, </span><span class="n">"type"</span><span class="p">:</span> <span class="s">"embed"</span><span class="p">, </span><span class="n">"server"</span><span class="p">:</span> <span class="s">"Mega-embed"</span> <span class="p">}</span>
+  <span class="p">]</span>
+<span class="p">}</span></code></pre>
+      </div>
+    </section>
+
+    <section class="section" id="watch-animesaturn">
+      <h2>AnimeSaturn</h2>
+      <div class="endpoint">
+        <div class="endpoint-head">
+          <span class="method-pill get">GET</span>
+          <span class="endpoint-path">/watch/animesaturn/<span class="param">:id</span>/<span class="param">sub|dub</span>/animesaturn-<span class="param">:ep</span></span>
+          <a class="try-btn" href="/watch/animesaturn/154587/sub/animesaturn-1" target="_blank">Try it ↗</a>
+        </div>
+        <div class="endpoint-body">
+          <p class="endpoint-desc">Italian source: <code>sub</code> is Japanese audio with Italian hard subtitles, <code>dub</code> is the Italian dub. Matched by the AniList id on the AnimeSaturn page. Streams carry <code>language: "it"</code>.</p>
+        </div>
+        <div class="code-label">Response</div>
+        <pre><code><span class="p">{</span>
+  <span class="n">"anilistId"</span><span class="p">:</span> <span class="b">154587</span><span class="p">,</span>
+  <span class="n">"episode"</span><span class="p">:</span> <span class="b">1</span><span class="p">,</span>
+  <span class="n">"audio"</span><span class="p">:</span> <span class="s">"sub"</span><span class="p">,</span>
+  <span class="n">"language"</span><span class="p">:</span> <span class="s">"it"</span><span class="p">,</span>
+  <span class="n">"streams"</span><span class="p">:</span> <span class="p">[</span>
+    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://srv42.tsubame.streampeaker.org/DDL/ANIME/.../Ep_01_SUB_ITA.mp4"</span><span class="p">, </span><span class="n">"type"</span><span class="p">:</span> <span class="s">"mp4"</span><span class="p">, </span><span class="n">"server"</span><span class="p">:</span> <span class="s">"Server principale"</span> <span class="p">}</span>,
+    <span class="p">{</span> <span class="n">"url"</span><span class="p">:</span> <span class="s">"https://play.saturncdn.net/embed/60415?token=..."</span><span class="p">, </span><span class="n">"type"</span><span class="p">:</span> <span class="s">"embed"</span><span class="p">, </span><span class="n">"server"</span><span class="p">:</span> <span class="s">"Server principale-embed"</span> <span class="p">}</span>
   <span class="p">]</span>
 <span class="p">}</span></code></pre>
       </div>

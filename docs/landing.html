@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Anivexa API</title>
+  <title>Avexy API</title>
   <link rel="icon" type="image/svg+xml" href="logo.svg"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -154,6 +154,16 @@
       margin-bottom: 36px;
     }
 
+    .fork-note {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+      max-width: 400px;
+      margin: -20px 0 32px;
+    }
+
+    .fork-note a { color: inherit; text-decoration: underline; text-underline-offset: 3px; white-space: nowrap; }
+
     .actions {
       display: flex;
       align-items: center;
@@ -262,13 +272,17 @@
 <div class="glow"></div>
 
 <div class="card">
-  <img src="logo.svg" alt="Anivexa" class="logo"/>
+  <img src="logo.svg" alt="Avexy" class="logo"/>
 
-  <h1>Anivexa</h1>
+  <h1>Avexy</h1>
   <p class="tagline">Streaming Aggregator API</p>
 
   <p class="desc">
-    A unified API for anime stream sources. Resolve episodes and watch links across 13 providers using a single AniList ID, with title and installment checks for fuzzy-search catalogs.
+    A unified API for anime stream sources. Resolve episodes and watch links across 12 providers using a single AniList ID. Trending, seasonal and airing shows are cached ahead of time, so even the first request is fast.
+  </p>
+
+  <p class="fork-note">
+    Avexy is a fork of <a href="https://github.com/walterwhite-69/Anivexa-API" target="_blank" rel="noopener noreferrer">Anivexa API</a>, maintained by the <a href="https://myanimezone.xyz" target="_blank" rel="noopener noreferrer">MyAnimeZone Team</a>.
   </p>
 
   <div class="actions">
@@ -299,14 +313,15 @@
   </div>
 
   <div class="badge-row">
-    <span class="badge">13 Providers</span>
+    <span class="badge">12 Providers</span>
     <span class="badge">AniList ID</span>
+    <span class="badge">Smart Cache</span>
     <span class="badge">No Auth</span>
     <span class="badge">CORS Enabled</span>
   </div>
 </div>
 
-<footer>© 2026 Anivexa. All rights reserved.</footer>
+<footer>© 2026 Avexy. All rights reserved.</footer>
 
 <script>
   (function () {

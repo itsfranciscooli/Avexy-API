@@ -4,9 +4,11 @@
 <img src="docs/logo.svg" width="80" height="80"/>
 
 
-# Anivexa API
+# Avexy API
 
 **Anime streaming aggregator API — one endpoint, all your sources.**
+
+Avexy is a fork of the original [Anivexa API](https://github.com/walterwhite-69/Anivexa-API), maintained by the [MyAnimeZone Team](https://myanimezone.xyz).
 
 ![Views](https://visitor-badge.laobi.icu/badge?page_id=walterwhite-69.Anivexa-API)
 [![GitHub stars](https://img.shields.io/github/stars/walterwhite-69/Anivexa-API?style=flat-square&color=yellow)](https://github.com/walterwhite-69/Anivexa-API/stargazers)
@@ -43,6 +45,8 @@ All listed providers are active. Coverage and stream availability vary by title.
 | **AnimeDunya** | MAL-backed; sub, HLS, and subtitles |
 | **AnimeOnsen** | AniList/MAL matching; sub, DASH, and subtitles |
 | **Ani.pm** | Soft-sub and hard-sub variants |
+| **Gogoanime** | English sub and dub; MegaVid HLS with subtitles |
+| **AnimeSaturn** | Italian: sub (ITA hardsub) and Italian dub; exact AniList matching |
 
 ---
 

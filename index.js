@@ -12,6 +12,8 @@ import kaaHandler                  from "./providers/kickassanime.js";
 import animedunyaHandler           from "./providers/animedunya.js";
 import animeonsenHandler           from "./providers/animeonsen.js";
 import anipmHandler                from "./providers/anipm.js";
+import gogoanimeHandler            from "./providers/gogoanime.js";
+import animesaturnHandler          from "./providers/animesaturn.js";
 import { getEpisodesResponse, getFilteredEpisodesResponse } from "./core/episode-cache.js";
 import { resolveProviders }         from "./core/episode-strategy.js";
 import { getAsync, setAsync, isFresh, mapTTL, WATCH_TTL, _CACHE_ENABLED } from "./core/smartcache.js";
@@ -250,10 +252,30 @@ export default {
       );
     }
 
+    m = path.match(/^\/watch\/gogoanime\/(\d+)\/(sub|dub)\/gogoanime-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:gogoanime:${id}:${audio}:${ep}`,
+        () => gogoanimeHandler.fetch(request),
+        SIGNED_STREAM_WATCH_TTL
+      );
+    }
+
+    m = path.match(/^\/watch\/animesaturn\/(\d+)\/(sub|dub)\/animesaturn-(\d+)\/?$/);
+    if (m) {
+      const [, id, audio, ep] = m;
+      return cachedWatch(
+        `watch:animesaturn:${id}:${audio}:${ep}`,
+        () => animesaturnHandler.fetch(request),
+        SIGNED_STREAM_WATCH_TTL
+      );
+    }
+
     if (path.startsWith("/watch/")) return json({ error: "Not found" }, 404);
 
     return json({
-      name: `Anivexa API ${env?.API_VERSION ?? "unknown"}`,
+      name: `Avexy API ${env?.API_VERSION ?? "unknown"}`,
       cache: _CACHE_ENABLED,
       providers: [
         "mkissa",
@@ -268,6 +290,8 @@ export default {
         "animedunya",
         "animeonsen",
         "anipm",
+        "gogoanime",
+        "animesaturn",
       ],
       routes: [
         "/map/:anilistId",
@@ -286,6 +310,8 @@ export default {
         "/watch/animedunya/:id/sub|dub/animedunya-:ep",
         "/watch/animeonsen/:id/sub|dub/animeonsen-:ep",
         "/watch/anipm/:id/sub|dub/anipm-:ep",
+        "/watch/gogoanime/:id/sub|dub/gogoanime-:ep",
+        "/watch/animesaturn/:id/sub|dub/animesaturn-:ep",
       ],
     });
   },

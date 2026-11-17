@@ -1,6 +1,6 @@
 {
-  "name": "all-api",
-  "version": "2.3.0",
+  "name": "avexy-api",
+  "version": "2.4.0",
   "type": "module",
   "main": "server.js",
   "scripts": {

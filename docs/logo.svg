@@ -1,14 +1,11 @@
 <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="none">
+  <!-- Avexy: a bold "V" with a play button resting in its notch. -->
   <defs>
     <linearGradient id="ag" x1="0" y1="0" x2="100" y2="100" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#818cf8"/>
       <stop offset="100%" stop-color="#c084fc"/>
     </linearGradient>
   </defs>
-  <path
-    fill-rule="evenodd"
-    clip-rule="evenodd"
-    fill="url(#ag)"
-    d="M50 7 L96 93 H78 L66 67 H34 L22 93 H4 Z M50 27 L63 59 H37 Z"
-  />
+  <path d="M14 16 L50 86 L86 16" stroke="url(#ag)" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M44 27 L59 36.5 L44 46 Z" fill="url(#ag)" stroke="url(#ag)" stroke-width="6" stroke-linejoin="round"/>
 </svg>

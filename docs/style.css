@@ -373,6 +373,10 @@ h3 {
 p { color: var(--muted); margin-bottom: 16px; }
 p:last-child { margin-bottom: 0; }
 
+.section ul { color: var(--muted); margin: 0 0 16px 20px; }
+.section li { margin-bottom: 4px; }
+.section .params-table { margin-bottom: 16px; }
+
 .endpoint {
   background: var(--surface);
   border: 1px solid var(--border);
